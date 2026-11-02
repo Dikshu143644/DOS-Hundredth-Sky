@@ -1,0 +1,45 @@
+// Milestone screenshots: login over the live 3D backdrop, character creation, world day, spell at night.
+import { launch } from './browser.mjs';
+const [, , q, out] = process.argv;
+const { browser, page, errors } = await launch({ viewport: { width: 1600, height: 900 } });
+const shot = async (n) => { await page.screenshot({ path: `${out}/${n}.png` }); console.log('shot', n); };
+await page.goto(`http://localhost:8787/?skipintro=1&${q}`, { waitUntil: 'load' });
+await page.waitForTimeout(300);
+await page.keyboard.press('Enter');
+await page.waitForSelector('#login .panel', { timeout: 120000 });
+await page.waitForTimeout(6000);
+await shot('m1_login');
+await page.click('#login .tabs button[data-m=register]');
+await page.fill('#login [name=username]', 'omkar' + Math.floor(Math.random() * 1e6));
+await page.fill('#login [name=password]', 'hundredth-sky');
+await page.click('#login button[type=submit]');
+await page.waitForSelector('#create', { timeout: 30000 });
+await page.fill('#create [data-name]', 'Kaelen' + String.fromCharCode(97 + Math.floor(Math.random() * 26)) + String.fromCharCode(97 + Math.floor(Math.random() * 26)));
+await page.click('#create .sw[data-v="10186751"]').catch(() => {});
+await page.waitForTimeout(7000);
+await shot('m2_create');
+await page.click('#create [data-create]');
+await page.waitForFunction(() => window.__dos.mode === 'game', null, { timeout: 60000 });
+await page.evaluate(() => { window.__dos.game.net.send({ type: 'chat', text: '/weather clear' }); });
+await page.waitForTimeout(500);
+await page.evaluate(() => { window.__dos.settings.timeOverride = 16.6; window.__dos.engine.weather = 'clear'; window.__dos.engine.rainAmt = 0; window.__dos.engine.env.overcast = 0; });
+await page.evaluate(() => { const g = window.__dos.game; g.cam.yaw = 0.25; g.cam.pitch = 0.12; g.cam.targetDist = 7; });
+await page.waitForTimeout(6000);
+await shot('m3_world_tower');
+// walk south into the forest and look back
+await page.evaluate(() => { const g = window.__dos.game; g.cam.yaw = Math.PI; });
+await page.keyboard.down('KeyW'); await page.waitForTimeout(6000); await page.keyboard.up('KeyW');
+await page.evaluate(() => { const g = window.__dos.game; g.cam.yaw = Math.PI * 0.85; g.cam.pitch = 0.18; });
+await page.waitForTimeout(4000);
+await shot('m4_forest');
+// night + IGNIS
+await page.evaluate(() => { window.__dos.settings.timeOverride = 21.5; const g = window.__dos.game; g.cam.yaw = 0.6; });
+await page.waitForTimeout(3000);
+await page.keyboard.press('Digit1');
+await page.waitForTimeout(1300);
+await shot('m5_ignis_chant');
+console.log('cast state', JSON.stringify(await page.evaluate(() => ({ cls: window.__dos.game.me.cls, mp: window.__dos.game.me.mp, casting: !!window.__dos.game.casting, castbar: document.querySelector('.castbar')?.className, chat: [...document.querySelectorAll('.chat .line')].slice(-4).map((e) => e.textContent) }))));
+await page.waitForTimeout(900);
+await shot('m6_ignis_fire');
+console.log('fps', await page.evaluate(() => window.__dos.engine.fps), 'errors', JSON.stringify(errors.slice(0, 8)));
+await browser.close();
