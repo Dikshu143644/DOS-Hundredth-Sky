@@ -1,0 +1,34 @@
+{
+  "name": "dos-hundredth-sky",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DOS: The Hundredth Sky — browser vertical slice of an anime-fantasy MMORPG",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx src/server/index.ts",
+    "build": "vite build && npm run build:server",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/server.mjs --banner:js=\"import {createRequire} from 'module';const require=createRequire(import.meta.url);\"",
+    "start": "node dist/server.mjs",
+    "test": "vitest run",
+    "test:e2e": "node tests/e2e/smoke.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {
+    "three": "^0.170.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "@types/node": "^22.20.5",
+    "@types/three": "^0.170.0",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.24.2",
+    "playwright-core": "1.48",
+    "tsx": "^4.23.15",
+    "typescript": "5.6",
+    "vite": "5.4",
+    "vitest": "2.1"
+  }
+}
