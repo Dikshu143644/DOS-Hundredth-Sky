@@ -22,7 +22,7 @@
 | | |
 |---|---|
 | ![Character creation](docs/media/02_create.jpg) | ![Ancient Forest](docs/media/03_forest.jpg) |
-| ![IGNIS at night](docs/media/04_ignis.jpg) | ![The Gate of Dawn and the Tower](docs/media/05_gate.jpg) |
+| ![IGNIS at night](docs/media/04_ignis.jpg) | ![The Capital walls and the Hundredth Tower over the Ancient Forest](docs/media/05_gate.jpg) |
 | ![FULGUR](docs/media/06_fulgur.jpg) | ![The cinematic flight to the Tower](docs/media/07_cinematic.jpg) |
 
 ---
@@ -43,6 +43,8 @@
 - The Hundredth Tower rises 1.9 km, with rune bands, floating halo rings and a beam of light.
 - **Spells are real lights**: every fireball and lightning strike is a dynamic point light, and the strongest casts a shadow.
 
+> Screenshots and the video were captured headless on a machine **without a GPU** (software WebGL), with Medium settings for the video and High for the stills.
+
 **Movement and physics**
 - A third-person controller with idle, walk, run, sprint, jump, fall, land and swim.
 - A kinematic capsule handles step-up, a slope limit and sub-stepping, so **no tunnelling, even at 25× speed**, as the unit tests check.
@@ -59,7 +61,7 @@
 
 **NPCs and AI** (all server-side; the browser never sees a key)
 - Guards, a smith, a merchant and a child follow **behaviour-tree routines** that change with the hour and the weather.
-- Two **LLM NPCs** (Aldric the gatekeeper and Lyra the forest scholar) have a memory model: short-term conversation, long-term facts about you, shared world memory, and a fixed personality.
+- Two **LLM NPCs** (Captain Aldric of the Gate and Lyra the forest scholar) have a memory model: short-term conversation, long-term facts about you, shared world memory, and a fixed personality.
 - The **AI Story Director** watches for “sparks” such as a first kill at night, casting in the rain, or reaching the ruins. From them it generates hidden quest chains ranked **F to SSS**, checks them against the world, and only reveals each one when it triggers.
 - LLM calls are **rate-limited** (a global bucket plus one per player), time-boxed at 9 s, and **always have a non-LLM fallback** (scripted dialogue and procedural quests). The game never waits on a model.
 
@@ -187,6 +189,17 @@ The e2e scripts use `playwright-core`. Point `CHROME_PATH` at any Chrome or Chro
 | Menu / settings | `Esc` |
 
 Every key can be rebound in **Settings → Controls**. On touch devices you get a virtual stick and buttons.
+
+---
+
+## Verified
+
+| Check | Result |
+|---|---|
+| `npm test` (vitest) | **25/25 pass**: netcode, combat, physics (wall-clip and anti-tunnelling), server auth, anti-speedhack, LLM gate, Story Director |
+| `npm run test:e2e` (Playwright, local and against the live URL) | **SMOKE PASS**: register → create → sprint into the wall (stopped at z = −87.98, wall plane −90) → IGNIS cast accepted → 0 console errors |
+| `bots.mjs` on the live shard (`wss://hundredth-sky.sites.tab.bot/ws`) | **MULTIPLAYER OK**: 3 clients, each saw the other 2, average RTT about 23 ms |
+| LLM NPC (local, OpenAI-compatible endpoint) | Captain Aldric answered in character (`source: llm`). The live shard currently runs the scripted fallback (#7). |
 
 ---
 
