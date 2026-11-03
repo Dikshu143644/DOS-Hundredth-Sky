@@ -14,7 +14,7 @@ export class Tower {
   crown: THREE.Mesh;
   halos: THREE.Mesh[] = [];
   constructor(scene: THREE.Scene) {
-    const stone = new THREE.MeshStandardMaterial({ map: tex('tex/brick_col.jpg'), normalMap: tex('tex/brick_nor.jpg', { srgb: false }), color: 0xa9adb8, roughness: 0.75, fog: false });
+    const stone = new THREE.MeshStandardMaterial({ map: tex('tex/brick_col.webp'), normalMap: tex('tex/brick_nor.webp', { srgb: false }), color: 0xa9adb8, roughness: 0.75, fog: false });
     stone.map!.repeat.set(1, 1);
     this.glow = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x5fe8ff, emissiveIntensity: 2.4, fog: false });
     const gold = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.9, roughness: 0.35, fog: false });

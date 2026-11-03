@@ -246,3 +246,11 @@ Music, ambience and sound effects are synthesised live in WebAudio, so there are
 - **Inventory & equipment (I)**: 8 equipment slots and a bag. Equip and unequip are server-authoritative: ownership and class are checked and stat bonuses are applied. Legendaries can drop from Tower monsters.
 - **Spell VFX**: GPU-simulated particles. IGNIS is a fireball with an explosion, smoke and a shockwave; FULGUR is branching tube lightning; LUX is a column of dawn light. Particle budgets scale with the quality tier (Low for phones).
 - **Dev harness**: `dev.html?scene=skycastle|armory|hero` renders the new scenes on their own (`tests/e2e/still.mjs`).
+
+## Phase 3 — title menu, golden-hour look, fast loading
+
+- **Title / main menu** (`src/client/ui/menu.ts`, `src/client/scenes/skycastle.ts`): golden-hour sea of clouds, floating castle, hero from behind in a wind-blown cloth cloak. Continue resumes the last hero, New Game opens character creation, Settings opens options, Quit logs out. Works in phone portrait and desktop landscape; keyboard navigable.
+- **Look**: warm golden grade in sky/post, finer meadow grass, cloth cloaks on heroes (`engine/cloak.ts`), HUD restyled in ivory-gold glass with heart/lightning bars, the violet twin blades are true crescents.
+- **Loading**: the menu shows at once over a 80 KB poster while the 3D title and then the world stream in the background. Animations slimmed (anims_skel 2.7 MB → 0.33 MB), unused models removed, textures WebP, title uses 512 px textures, and the server serves pre-compressed `.br/.gz` twins (`tools/precompress.mjs`, run by `npm run build`) with immutable caching for hashed bundles.
+  Measured with `npm run test:load` (cold cache, 9 Mbps / 150 ms): world ready 24.3 s / 16.4 MB → 16.5 s / 6.3 MB; first interactive screen 11 s → 1.6 s. Slow 4G (1.6 Mbps): world 92 s → 40 s.
+- **Tests**: `npm test` (unit), `npm run test:menu` (menu flow: settings, New Game → register → create → world, reload → Continue, Quit), `node tests/e2e/smoke.mjs`, `node tests/e2e/bots.mjs <ws> 3`.

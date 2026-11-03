@@ -148,6 +148,7 @@ export class Engine {
   setQuality(qk: Quality) {
     // runtime-safe parts; geometry density changes apply on next load
     this.quality = qk; this.q = PRESETS[qk];
+    if (!this.ready) return; // chosen on the title menu before the world streamed in
     this.applyShadowQuality();
     this.resize();
     this.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; });

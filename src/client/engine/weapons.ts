@@ -120,14 +120,18 @@ function runeFullerMask(seed: number, bright = 1) {
   }, false);
 }
 
-function crescentShape(R: number, r: number, off: number, span = Math.PI * 1.25) {
+/** A true crescent ("moon blade"): the outer circle (radius R) minus a circle of radius r shifted
+ *  back by d. Thickest at +x, tapering to two needle tips where the circles cross. */
+function crescentShape(R: number, r: number, d: number) {
+  const x = (r * r - R * R - d * d) / (2 * d);
+  const y = Math.sqrt(Math.max(0, R * R - x * x));
+  const aOut = Math.atan2(y, x), aIn = Math.atan2(y, x + d);
   const s = new THREE.Shape();
-  const a0 = -span / 2, a1 = span / 2;
-  s.moveTo(Math.cos(a0) * R, Math.sin(a0) * R);
-  s.absarc(0, 0, R, a0, a1, false);
-  s.absarc(off, 0, r, a1 * 0.92, a0 * 0.92, true);
+  s.moveTo(Math.cos(-aOut) * R, Math.sin(-aOut) * R);
+  s.absarc(0, 0, R, -aOut, aOut, false);
+  s.absarc(-d, 0, r, aIn, -aIn, true);
   s.closePath();
-  return s;
+  return { shape: s, tip: aOut };
 }
 
 function addAura(group: THREE.Group, o: { color: THREE.Color; count: number; box: THREE.Box3; size: number; rise: number; swirl: number; tex?: THREE.Texture; seed: number }) {
@@ -188,21 +192,21 @@ export function buildWeapon(model: WeaponModel, o: { aura?: boolean; light?: boo
     updaters.push((t) => { blade.emissiveIntensity = 2.7 + 0.7 * (Math.sin(t * 7.3) * 0.5 + Math.sin(t * 13.1) * 0.3 + Math.sin(t * 2.1) * 0.6); });
   } else if (model === 'umbra') {
     glow = new THREE.Color(0.7, 0.25, 1.0);
-    const metal = new THREE.MeshPhysicalMaterial({ color: 0x2b2238, metalness: 1, roughness: 0.22, clearcoat: 0.7, iridescence: 0.5 });
-    const edge = new THREE.MeshStandardMaterial({ color: 0x110818, emissive: new THREE.Color(0.75, 0.25, 1.0), emissiveIntensity: 4.5 });
+    const metal = new THREE.MeshPhysicalMaterial({ color: 0x5a3c86, metalness: 1, roughness: 0.2, clearcoat: 0.8, iridescence: 0.6, emissive: new THREE.Color(0.18, 0.04, 0.32), emissiveIntensity: 0.5 });
+    const edge = new THREE.MeshStandardMaterial({ color: 0x110818, emissive: new THREE.Color(0.85, 0.35, 1.0), emissiveIntensity: 5.5 });
     const mkBlade = (side: number) => {
       const B = new THREE.Group();
-      const sh = crescentShape(0.42, 0.37, 0.09, Math.PI * 1.05);
+      const { shape: sh, tip } = crescentShape(0.40, 0.385, 0.15);
       const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.012, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.008, bevelSegments: 2, curveSegments: 48 }).translate(0, 0, -0.006);
       const m = new THREE.Mesh(geo, metal); m.castShadow = true; B.add(m);
       // glowing cutting edge along the outer arc
-      const arc = new THREE.EllipseCurve(0, 0, 0.425, 0.425, -Math.PI * 0.52, Math.PI * 0.52, false, 0);
+      const arc = new THREE.EllipseCurve(0, 0, 0.405, 0.405, -tip * 0.97, tip * 0.97, false, 0);
       const pts = arc.getPoints(64).map((p) => new THREE.Vector3(p.x, p.y, 0));
       B.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.006, 5, false), edge));
       // rune notches
-      for (let k = 0; k < 5; k++) { const a = -0.6 + k * 0.3; const r = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.035, 0.03), edge); r.position.set(Math.cos(a) * 0.36, Math.sin(a) * 0.36, 0); r.rotation.z = a; B.add(r); }
-      const g = new THREE.Mesh(grip(0.16, 0.017), M.leather(0x1c1424)); g.rotation.z = Math.PI / 2; g.position.set(-0.02, 0, 0); B.add(g);
-      B.rotation.z = Math.PI / 2; B.position.set(side * 0.16, 0.45, side * 0.02); B.rotation.y = side < 0 ? Math.PI : 0; B.rotation.x = side * 0.12;
+      for (let k = 0; k < 5; k++) { const a = -0.5 + k * 0.25; const r = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.026), edge); r.position.set(Math.cos(a) * 0.33, Math.sin(a) * 0.33, 0); r.rotation.z = a; B.add(r); }
+      const g = new THREE.Mesh(grip(0.18, 0.017), M.leather(0x1c1424)); g.rotation.z = Math.PI / 2; g.position.set(0.1, 0, 0); B.add(g);
+      B.rotation.z = Math.PI / 2 + side * 0.55; B.position.set(side * 0.08, 0.45, side * 0.05); B.rotation.x = side * 0.08;
       return B;
     };
     G.add(mkBlade(1), mkBlade(-1));

@@ -64,12 +64,12 @@ function makeMat(name: string): THREE.Material {
     m = new THREE.MeshStandardMaterial({ map: tex(`tex/q_${name}.jpg`), roughness: 0.95 });
     addWind(m, 0.15, false);
   } else if (/Rock/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Rocks.jpg'), roughness: 0.9, color: 0xc8c4bc });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Rocks.webp'), roughness: 0.9, color: 0xc8c4bc });
   } else if (/Flowers/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Flowers.png'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8 });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Flowers.webp'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8 });
     addWind(m, 0.8, true);
   } else if (/Grass/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Grass.png'), side: THREE.DoubleSide, roughness: 0.85 });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Grass.webp'), side: THREE.DoubleSide, roughness: 0.85 });
     addWind(m, 1, false);
   } else m = new THREE.MeshStandardMaterial({ color: 0x777777 });
   m.name = name;
@@ -171,24 +171,29 @@ export class Foliage {
   }
 
   private buildGrass(count: number, terrain: Terrain) {
-    // clump of 5 tapered blades
+    // phase 3: a fine clump of 13 thin tapered blades, each with its own green-to-straw colour
+    // (dark rooted base, sun-bleached tips), closer to the meadows in the references
     const blades: THREE.BufferGeometry[] = [];
-    for (let b = 0; b < 7; b++) {
-      const g = new THREE.PlaneGeometry(0.11, 0.46, 1, 3);
+    const rr = (() => { let s = 1234567; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+    for (let b = 0; b < 13; b++) {
+      const hgt = 0.3 + rr() * 0.32, wid = 0.028 + rr() * 0.018;
+      const g = new THREE.PlaneGeometry(wid, hgt, 1, 4);
       const p = g.attributes.position as THREE.BufferAttribute;
       const col = new Float32Array(p.count * 3);
+      const tip = new THREE.Color().setHSL(0.14 + rr() * 0.08, 0.45 + rr() * 0.2, 0.36 + rr() * 0.12);
+      const root = new THREE.Color().setHSL(0.22 + rr() * 0.05, 0.45, 0.10 + rr() * 0.06);
+      const lean = 0.06 + rr() * 0.14;
       for (let i = 0; i < p.count; i++) {
-        const y = p.getY(i) + 0.23, t = y / 0.46;
-        p.setX(i, p.getX(i) * (1 - t * 0.9));
+        const y = p.getY(i) + hgt / 2, t = y / hgt;
+        p.setX(i, p.getX(i) * (1 - t * 0.92));
         p.setY(i, y);
-        p.setZ(i, t * t * 0.12);
-        const c = new THREE.Color(0x6f8a3c).lerp(new THREE.Color(0xd2dc8a), t * t);
+        p.setZ(i, t * t * lean);
+        const c = root.clone().lerp(new THREE.Color().setHSL(0.22 + rr() * 0.04, 0.42, 0.22), Math.min(1, t * 1.6)).lerp(tip, Math.max(0, t - 0.45) * 1.6);
         col.set([c.r, c.g, c.b], i * 3);
       }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      g.rotateY((b / 7) * Math.PI * 2 + Math.random());
-      g.translate((Math.random() - 0.5) * 0.25, 0, (Math.random() - 0.5) * 0.25);
-      g.scale(1, 0.75 + Math.random() * 0.6, 1);
+      g.rotateY(rr() * Math.PI * 2);
+      g.translate((rr() - 0.5) * 0.3, 0, (rr() - 0.5) * 0.3);
       blades.push(g);
     }
     const geo = mergeGeometries(blades)!;

@@ -63,7 +63,7 @@ setInterval(() => game.tick(), 50);
 process.on('SIGTERM', () => { game.flush(); process.exit(0); });
 process.on('SIGINT', () => { game.flush(); process.exit(0); });
 
-const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon', '.mp4': 'video/mp4' };
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.webp': 'image/webp', '.hdr': 'application/octet-stream' };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://x');
   if (url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, ...game.stats() })); return; }
@@ -71,10 +71,20 @@ const server = http.createServer((req, res) => {
   if (p.includes('..')) { res.writeHead(400); res.end(); return; }
   let f = path.join(STATIC_DIR, p || 'index.html');
   if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(STATIC_DIR, 'index.html');
-  fs.readFile(f, (err, buf) => {
+  const ext = path.extname(f);
+  // phase 3: serve the build's pre-compressed twin (.br / .gz) when the browser takes it. Meshopt
+  // geometry and animation buffers are built to be followed by a byte compressor (animations ~7x).
+  const ae = String(req.headers['accept-encoding'] || '');
+  let enc: 'br' | 'gzip' | null = null;
+  if (/\bbr\b/.test(ae) && fs.existsSync(f + '.br')) enc = 'br'; else if (/\bgzip\b/.test(ae) && fs.existsSync(f + '.gz')) enc = 'gzip';
+  const file = enc === 'br' ? f + '.br' : enc === 'gzip' ? f + '.gz' : f;
+  fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
-    const ext = path.extname(f);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=604800', 'x-content-type-options': 'nosniff' });
+    // content-hashed build output never changes: cache it for a year; other assets for a week
+    const hashed = /-[A-Za-z0-9_-]{8}\.(js|css)$/.test(f);
+    const headers: Record<string, string> = { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=604800, stale-while-revalidate=86400', 'x-content-type-options': 'nosniff', vary: 'Accept-Encoding' };
+    if (enc) headers['content-encoding'] = enc;
+    res.writeHead(200, headers);
     res.end(buf);
   });
 });

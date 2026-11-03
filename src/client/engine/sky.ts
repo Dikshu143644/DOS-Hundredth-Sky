@@ -116,12 +116,14 @@ export class Environment {
     if (this.cinematicSun) this.sunDir.copy(this.cinematicSun);
     const e = this.sunDir.y;
     this.night = 1 - smoothstep(-0.12, 0.08, e);
-    const golden = smoothstep(0.35, 0.02, e) * (1 - this.night);
+    // phase 3 art direction (Omkar's title-menu reference): the whole world keeps a warm golden
+    // bias by day, deepening into a full golden hour as the sun drops
+    const golden = Math.max(smoothstep(0.35, 0.02, e), 0.42) * (1 - this.night);
     const oc = this.overcast;
 
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(this.sunDir);
-    u.turbidity.value = 3 + oc * 12 + golden * 3;
+    u.turbidity.value = 2.4 + oc * 12 + golden * 1.6;
     u.rayleigh.value = 1.2 + golden * 1.6 - oc * 0.8;
     u.mieCoefficient.value = 0.004 + oc * 0.02;
     this.skyNight.value = Math.max(this.night * 0.92, oc * 0.55);
@@ -146,16 +148,16 @@ export class Environment {
     this.sun.target.position.z = Math.round(this.sun.target.position.z / texel) * texel;
     this.sun.position.copy(this.sun.target.position).addScaledVector(lightDir, 120);
 
-    const skyTop = new THREE.Color(0x5f8fd6).lerp(new THREE.Color(0x0b1430), this.night).lerp(new THREE.Color(0x56606c), oc * 0.8);
-    const ground = new THREE.Color(0x4a3f2c).lerp(new THREE.Color(0x0c1018), this.night);
+    const skyTop = new THREE.Color(0x7f9fd0).lerp(new THREE.Color(0xffd9b0), golden * 0.35).lerp(new THREE.Color(0x0b1430), this.night).lerp(new THREE.Color(0x56606c), oc * 0.8);
+    const ground = new THREE.Color(0x5a4630).lerp(new THREE.Color(0x0c1018), this.night);
     this.hemi.color.copy(skyTop);
     this.hemi.groundColor.copy(ground);
     this.hemi.intensity = (0.95 + golden * 0.35 - this.night * 0.6) * (1 + oc * 0.3) + this.lightning * 2;
 
     // horizon / fog colour
-    this.horizon.setRGB(0.66, 0.74, 0.86).lerp(new THREE.Color(0.95, 0.62, 0.38), golden * 0.7).lerp(new THREE.Color(0.035, 0.05, 0.1), this.night).lerp(new THREE.Color(0.42, 0.46, 0.5).multiplyScalar(1 - this.night * 0.8), oc * 0.85);
+    this.horizon.setRGB(0.72, 0.74, 0.80).lerp(new THREE.Color(1.0, 0.70, 0.46), golden * 0.85).lerp(new THREE.Color(0.035, 0.05, 0.1), this.night).lerp(new THREE.Color(0.42, 0.46, 0.5).multiplyScalar(1 - this.night * 0.8), oc * 0.85);
     this.fog.color.copy(this.horizon);
-    this.fog.density = 0.0011 + oc * 0.0042 + this.night * 0.0006;
+    this.fog.density = 0.0009 + oc * 0.0042 + this.night * 0.0006;
 
     (this.stars.material as THREE.PointsMaterial).opacity = this.night * (1 - oc);
     this.stars.position.copy(camera.position);

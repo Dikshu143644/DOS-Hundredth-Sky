@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { makeCharacter, CharacterRig, AnimName } from '../engine/assets';
 import { makeHero, heroModel, UAL_GAIT, HeroRig } from '../engine/heroes';
+import { makeCloak, CloakFX } from '../engine/cloak';
 import { buildWeapon, WeaponFX, WeaponModel } from '../engine/weapons';
 import { ITEMS } from '../../shared/items';
 import { classById, MONSTERS, MonsterKind } from '../../shared/combat';
 import { NPCS } from '../../server/core/npcdefs';
 import type { Appearance } from '../../shared/protocol';
+
+/** Cloak cloth per class (and the two named NPCs), warm and muted like the reference. */
+const CLOAK_COLORS: Record<string, number> = { warrior: 0x7a2e22, knight: 0x2c3e66, mage: 0x4a2f6e, archer: 0x3d5232, assassin: 0x2b2a2e, summoner: 0x55306a, healer: 0xe6dcc6, aldric: 0x2c3e66, lyra: 0xd6c4a0 };
 
 const ONE_SHOT = new Set<AnimName>(['attack', 'attack2', 'shoot', 'castshoot', 'hit', 'death', 'jump', 'land', 'spawn', 'taunt']);
 
@@ -45,7 +49,17 @@ export class CharacterView {
       // realistic-proportioned hero body (phase 2)
       const hm = kind === 'n' ? heroNpc[key][0] : heroModel(key, ap?.body ?? 'm');
       const look = kind === 'n' ? { tint: heroNpc[key][1], scale: key === 'mira' ? 0.97 : 1 } : { tint: tint === 0xffffff ? undefined : tint, accent, headgear, scale };
-      this.ready = makeHero(hm, look).then((rig) => { this.rig = rig; this.hero = rig; this.root.add(rig.root); this.play('idle', 0); if (this.pendingWeapon !== undefined) this.setWeapon(this.pendingWeapon); });
+      const wantCloak = (kind === 'p' || kind === 'b') ? (ap?.cape ?? true) : (key === 'aldric' || key === 'lyra');
+      this.ready = makeHero(hm, look).then((rig) => {
+        this.rig = rig; this.hero = rig; this.root.add(rig.root);
+        // phase 3: every hero wears a cloth cloak in the title-menu style (class-coloured, wind + run trail)
+        if (wantCloak) {
+          const base = CLOAK_COLORS[key] ?? 0xd6c4a0;
+          const col = ap?.accent !== undefined && kind !== 'n' ? new THREE.Color(base).lerp(new THREE.Color(ap.accent), 0.22).getHex() : base;
+          this.cloak = makeCloak(rig.root, { color: col, length: 1.05, width: 0.72 });
+        }
+        this.play('idle', 0); if (this.pendingWeapon !== undefined) this.setWeapon(this.pendingWeapon);
+      });
     } else {
       this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
         this.rig = rig;
@@ -56,6 +70,7 @@ export class CharacterView {
   }
 
   hero: HeroRig | null = null;
+  cloak: CloakFX | null = null;
   weapon: WeaponFX | null = null;
   weaponId: string | null = null;
   private pendingWeapon: string | null | undefined = undefined;
@@ -121,6 +136,7 @@ export class CharacterView {
       if (this.stepPhase >= 1) { this.stepPhase -= 1; this.onStep?.(); }
     } else if (this.current) this.current.timeScale = 1;
     this.rig.mixer.update(dt);
+    this.cloak?.update(dt, this.currentName === 'idle' ? 0 : speed);
     if (this.weapon) this.weapon.update(now, dt);
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 4);
