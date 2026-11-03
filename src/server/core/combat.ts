@@ -1,7 +1,7 @@
 /** Server combat system: class skills, statuses, elemental reactions, combos, dodge/parry,
  *  summons and the death penalty. Everything here runs only on the authoritative server. */
 import { stepCharacter, hasLineOfSight, raycastWorld, sweepDash, newCharState, PHYS, MoveInput, CharState } from '../../shared/physics';
-import { heightAt } from '../../shared/world';
+import { heightAt, withZone } from '../../shared/world';
 import { clamp } from '../../shared/rng';
 import { classById, computeDamage, xpToNext, Element, MONSTERS, MonsterDef } from '../../shared/combat';
 import { SkillDef, skillById, rankScale, comboPower, COMBO_WINDOW, reaction, SkillEffects, masteryLevel, SUMMONS } from '../../shared/skills';
@@ -107,7 +107,7 @@ export class Combat {
       case 'projectile': {
         const a = aimPoint();
         const dx = a.x - ox, dy = a.y - oy, dz = a.z - oz, d = Math.hypot(dx, dy, dz) || 1;
-        this.g.projectiles.push({ owner: p.id, spell: sp.id, x: ox, y: oy, z: oz, dx: dx / d, dy: dy / d, dz: dz / d, speed: sp.fx === 'arrow' ? 42 : 26, left: Math.min(sp.range, d + 2), power: rs.power, stat, homing: sp.id === 'spiritbolt' ? a.ent?.id : undefined });
+        this.g.projectiles.push({ zone: p.zone, owner: p.id, spell: sp.id, x: ox, y: oy, z: oz, dx: dx / d, dy: dy / d, dz: dz / d, speed: sp.fx === 'arrow' ? 42 : 26, left: Math.min(sp.range, d + 2), power: rs.power, stat, homing: sp.id === 'spiritbolt' ? a.ent?.id : undefined });
         bc({ type: 'fx', kind: 'spell', src: p.id, spell: sp.id, x: ox, y: oy, z: oz, tx: a.x, ty: a.y, tz: a.z });
         return;
       }
@@ -289,7 +289,7 @@ export class Combat {
     }
     if (!best) { p.combo = { n: 0, last: 0 }; return; }
     const tgt = best;
-    setTimeout(() => {
+    setTimeout(() => withZone(p.zone, () => {
       const t2 = this.g.o.now();
       if (tgt.dead || p.dead) return;
       const stat = cls.weapon === 'staff' ? this.magOf(p, t2) * 0.7 : this.atkOf(p, t2);
@@ -301,7 +301,7 @@ export class Combat {
         if (cp.finisher && tgt.type === 'm' && !(tgt as Monster).def.boss) tgt.stunUntil = Math.max(tgt.stunUntil, t2 + 0.6);
         this.g.progress.onHit(p, this.weaponKind(p));
       }
-    }, (ranged ? 0.25 : 0.2) * 1000);
+    }), (ranged ? 0.25 : 0.2) * 1000);
   }
 
   // ------------------------------------------------------------------ dodge & parry
@@ -461,7 +461,7 @@ export class Combat {
       s.anim = d.ranged ? 'castshoot' : 'attack'; s.animUntil = now + 0.6;
       this.g.broadcastNear(s.s.x, s.s.z, 150, { type: 'fx', kind: 'attack', src: s.id, dst: tgt.id, x: s.s.x, y: s.s.y, z: s.s.z, spell: d.ranged ? 'firebolt' : undefined });
       const t = tgt;
-      setTimeout(() => { if (!t.dead && !s.dead && this.g.ents.has(s.id)) this.damage(s, t, this.magOf(owner, this.g.o.now()), s.power, d.el, this.g.o.now()); }, d.ranged ? 500 : 300);
+      setTimeout(() => withZone(s.zone, () => { if (!t.dead && !s.dead && this.g.ents.has(s.id)) this.damage(s, t, this.magOf(owner, this.g.o.now()), s.power, d.el, this.g.o.now()); }), d.ranged ? 500 : 300);
     }
     if (now > s.animUntil) { const sp = Math.hypot(s.s.vx, s.s.vz); s.anim = sp > 2.5 ? 'run' : sp > 0.3 ? 'walk' : 'idle'; }
   }

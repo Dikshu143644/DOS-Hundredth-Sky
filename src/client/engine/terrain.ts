@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { heightAt, cityMask, distToRoad, WATER_LEVEL, LAKE } from '../../shared/world';
+import { heightAt, cityMask, distToRoad, WATER_LEVEL, LAKE, REGION } from '../../shared/world';
 import { fbm, smoothstep } from '../../shared/rng';
 import { tex } from './assets';
 
@@ -41,11 +41,11 @@ export class Terrain {
     geo.setAttribute('splat', new THREE.BufferAttribute(splat, 4));
 
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 });
-    const L = ['grass', 'forest', 'rock', 'cobble'];
+    const L = REGION.layers; // phase 4: each region picks its 4 ground layers + tints
     const cols = L.map((l) => tex(`tex/${l}_col.jpg`));
     const nors = L.map((l) => tex(`tex/${l}_nor.jpg`, { srgb: false }));
     const uni: Record<string, { value: unknown }> = { uWet: this.uniforms.uWet };
-    L.forEach((l, i) => { uni['tC' + i] = { value: cols[i] }; uni['tN' + i] = { value: nors[i] }; });
+    L.forEach((l, i) => { uni['tC' + i] = { value: cols[i] }; uni['tN' + i] = { value: nors[i] }; uni['uK' + i] = { value: new THREE.Color(REGION.tints[i]).multiplyScalar(REGION.id === 'desert' ? 1.45 : REGION.id === 'frozen' ? 1.15 : 1) }; });
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uni);
       sh.vertexShader = sh.vertexShader
@@ -54,7 +54,7 @@ export class Terrain {
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
           varying vec4 vSplat; varying vec3 vWPos; varying vec3 vWNrm; uniform float uWet;
-          uniform sampler2D tC0, tC1, tC2, tC3, tN0, tN1, tN2, tN3;
+          uniform sampler2D tC0, tC1, tC2, tC3, tN0, tN1, tN2, tN3; uniform vec3 uK0, uK1, uK2, uK3;
           float tHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
           float tNoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(tHash(i),tHash(i+vec2(1,0)),f.x), mix(tHash(i+vec2(0,1)),tHash(i+vec2(1,1)),f.x), f.y); }
           vec3 triRock(sampler2D t, vec3 p, vec3 n){ vec3 b = pow(abs(n), vec3(4.0)); b/= (b.x+b.y+b.z); return texture2D(t, p.zy*0.11).rgb*b.x + texture2D(t, p.xz*0.11).rgb*b.y + texture2D(t, p.xy*0.11).rgb*b.z; }
@@ -67,7 +67,7 @@ export class Terrain {
           vec3 cF = mix(texture2D(tC1, uvA*1.2).rgb, texture2D(tC1, uvB).rgb, 0.35);
           vec3 cR = triRock(tC2, vWPos, vWNrm);
           vec3 cC = texture2D(tC3, vWPos.xz*0.22).rgb;
-          vec3 albedo = cG*sw.x + cF*sw.y + cR*sw.z + cC*sw.w;
+          vec3 albedo = cG*uK0*sw.x + cF*uK1*sw.y + cR*uK2*sw.z + cC*uK3*sw.w;
           albedo *= mix(0.82, 1.08, tNoise(vWPos.xz*0.02));
           albedo *= mix(1.0, 0.62, uWet * (1.0 - sw.z*0.5));
           diffuseColor.rgb *= albedo;

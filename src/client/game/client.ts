@@ -16,6 +16,8 @@ import { INTERP_DELAY_MS, NetEntity, S2C, CharacterSummary, SelfState } from '..
 import { spellById, classById } from '../../shared/combat';
 import { skillForSlot, rankScale, SkillDef } from '../../shared/skills';
 import { heroPanel } from '../ui/hero';
+import { worldMap, type MapState } from '../ui/travel';
+import { REGIONS } from '../../shared/regions';
 import type { ProgressView } from '../../shared/protocol';
 import { heightAt, WATER_LEVEL } from '../../shared/world';
 
@@ -74,6 +76,7 @@ export class GameClient {
     this.input.mountTouch(this.hud.root, (a) => this.action(a));
     net.onMessage = (m) => this.onMessage(m);
     this.sendPing();
+    if (joined.zone && joined.zone !== engine.zone) void this.enterZone(joined.zone, this.me.x, this.me.z, 0, joined.weather);
   }
 
   get myClass() { return classById(this.hud.char.cls); }
@@ -102,12 +105,15 @@ export class GameClient {
       case 'quest': this.hud.setQuest(m.quest, m.event === 'discovered'); if (m.event === 'discovered') audio.questReveal(); break;
       case 'notice': this.hud.notice(m.text, m.style); if (m.style === 'levelup') audio.levelUp(); break;
       case 'died': this.dead = true; this.hud.showDeath(m.by, m); audio.death(); break;
+      case 'zone': void this.enterZone(m.zone, m.x, m.z, m.yaw, m.weather, m.region, m.levels); break;
+      case 'map': this.mapState = m; this.mapUi?.update(m); break;
       case 'progress': this.progress = m.p; this.hud.setProgress(m.p); this.heroUi?.update(m.p, this.self.level); break;
       case 'kick': this.hud.notice(m.reason, 'warn'); break;
     }
   }
 
   private onSnap(m: Extract<S2C, { type: 'snap' }>) {
+    if (this.loadingZone) return;
     this.self = m.self;
     this.engine.hours = m.worldTime;
     this.engine.weather = m.weather;
@@ -276,7 +282,7 @@ export class GameClient {
     const now = performance.now() / 1000;
     if (a === 'menu') return this.hud.toggleMenu();
     if (a === 'chat') return this.hud.focusChat();
-    if (a === 'map') return this.hud.toggleMap();
+    if (a === 'map') return this.openMap();
     if (a === 'quests') return this.hud.toggleQuests();
     if (a === 'inventory') return this.openInventory();
     if (a === 'armory') return (window as any).__dos?.openArmory?.(this.equipment.weapon);
@@ -313,6 +319,41 @@ export class GameClient {
   }
   progress: ProgressView | null = null;
   heroUi: ReturnType<typeof heroPanel> | null = null;
+  mapUi: ReturnType<typeof worldMap> | null = null;
+  mapState: MapState = { zone: 'capital', attuned: ['capital:dawn'], bind: 'capital:dawn', visited: ['capital'] };
+  loadingZone = false;
+  openMap() {
+    if (this.mapUi) { this.mapUi.close(); return; }
+    this.mapUi = worldMap({ state: this.mapState, level: this.self.level, send: (m) => this.net.send(m), onClose: () => { this.mapUi = null; }, toggleMinimap: () => this.hud.toggleMap() });
+    this.net.send({ type: 'map' });
+  }
+  /** Phase 4 · M2: the server moved us into another region — stream it in behind a loading veil. */
+  async enterZone(zone: string, x: number, z: number, yaw: number, weather: string, region?: string, levels?: [number, number]) {
+    const R = REGIONS[zone as keyof typeof REGIONS];
+    this.loadingZone = true;
+    const veil = document.createElement('div');
+    veil.className = 'zone-load';
+    veil.innerHTML = `<div class="a">${region ?? R?.name ?? zone}</div><div class="b">LEVEL ${(levels ?? R?.levels ?? [1, 1]).join(' – ')}</div><div class="bar"><i></i></div><div class="c">Crossing over…</div>`;
+    document.body.appendChild(veil);
+    const t0 = performance.now();
+    for (const r of this.remotes.values()) { r.view.dispose(); r.plate.remove(); }
+    this.remotes.clear(); this.targetId = 0; this.casting = null;
+    this.pending.list.length = 0;
+    this.mapUi?.close();
+    await new Promise((r) => setTimeout(r, 30)); // let the veil paint
+    try {
+      if (this.engine.zone !== zone) await this.engine.loadZone(zone, (s) => { const c = veil.querySelector('.c'); if (c) c.textContent = s + '…'; });
+    } catch (e) { console.error('[dos] zone load failed', e); }
+    this.me = newCharState(x, z, yaw);
+    this.cam.yaw = yaw;
+    this.engine.weather = weather;
+    this.hud.invalidateMap();
+    this.net.send({ type: 'resync' });
+    (window as any).__zoneMs = Math.round(performance.now() - t0);
+    console.info('[dos] zone', zone, 'streamed in', (window as any).__zoneMs, 'ms');
+    this.loadingZone = false;
+    veil.style.opacity = '0'; setTimeout(() => veil.remove(), 600);
+  }
   lastResync = 0;
   dodgeQueued = false;
   parryCdLocal = 0;
@@ -411,6 +452,7 @@ export class GameClient {
   update(dt: number) {
     const now = performance.now() / 1000;
     if (now * 1000 - this.lastPing > 1000) this.sendPing();
+    if (this.loadingZone) { this.input.consumeLook(); return; }
     // look
     const look = this.input.consumeLook();
     this.cam.rotate(look.dx, look.dy);
@@ -457,7 +499,7 @@ export class GameClient {
       const vis = r.view.root.position.distanceTo(this.renderPos) < 120;
       // never let a body sit in front of the lens: hide anything (but the boss) closer to the camera than the hero is
       const camD = r.view.root.position.distanceTo(this.engine.camera.position);
-      r.view.root.visible = vis && !(camD < 2.6 && camD < this.engine.camera.position.distanceTo(this.renderPos) - 0.5 && !r.ent.bs);
+      r.view.root.visible = vis && !(camD < 2.6 && camD < this.engine.camera.position.distanceTo(this.renderPos) - 0.5 && !r.ent.bs && r.view.height < 3);
       if (vis) r.view.update(dt, a === 'talk' ? 'interact' : a, r.speed);
       if (r.ent.c && r.t !== 'm') { /* remote casting handled by fx */ }
     }

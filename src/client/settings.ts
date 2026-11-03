@@ -16,7 +16,7 @@ export const DEFAULT_BINDINGS: Record<string, string> = {
 };
 export const BINDING_LABELS: Record<string, string> = {
   forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right', jump: 'Jump', sprint: 'Sprint', walk: 'Walk toggle',
-  spell1: 'Skill 1', spell2: 'Skill 2', spell3: 'Skill 3', spell4: 'Skill 4', spell5: 'Advanced-class skill', ult: 'Ultimate', dodge: 'Dodge roll (i-frames)', parry: 'Parry (time it on the swing)', hero: 'Hero panel: stats, skills, titles', attack: 'Basic attack (chain = combo)', interact: 'Talk / interact', target: 'Cycle target', chat: 'Chat', map: 'Toggle minimap size', quests: 'Quest log', inventory: 'Inventory & equipment', armory: 'Legendary armory', menu: 'Menu',
+  spell1: 'Skill 1', spell2: 'Skill 2', spell3: 'Skill 3', spell4: 'Skill 4', spell5: 'Advanced-class skill', ult: 'Ultimate', dodge: 'Dodge roll (i-frames)', parry: 'Parry (time it on the swing)', hero: 'Hero panel: stats, skills, titles', attack: 'Basic attack (chain = combo)', interact: 'Talk / interact', target: 'Cycle target', chat: 'Chat', map: 'World map & fast travel', quests: 'Quest log', inventory: 'Inventory & equipment', armory: 'Legendary armory', menu: 'Menu',
 };
 
 export interface Settings {

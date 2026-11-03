@@ -1,6 +1,6 @@
 import type { ClassId } from './combat';
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const SERVER_TICK = 20;           // snapshots per second
 export const INTERP_DELAY_MS = 110;      // remote entity interpolation delay
 
@@ -38,6 +38,8 @@ export type C2S =
   | { type: 'input'; seq: number; mx: number; mz: number; yaw: number; jump: boolean; sprint: boolean; walk: boolean; dt: number; dodge?: boolean }
   | { type: 'parry' }
   | { type: 'resync' }
+  | { type: 'travel'; shrine: string }
+  | { type: 'map' }
   | { type: 'allocStat'; attr: string; n?: number }
   | { type: 'resetStats' }
   | { type: 'rankSkill'; skill: string }
@@ -66,17 +68,19 @@ export type S2C =
   | { type: 'auth'; ok: boolean; error?: string; token?: string; user?: string }
   | { type: 'chars'; list: CharacterSummary[] }
   | { type: 'charError'; error: string }
-  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string> }
+  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string>; zone?: string }
   | { type: 'snap'; t: number; ack: number; me: { x: number; y: number; z: number; vx: number; vy: number; vz: number; g: boolean; sw: boolean; yaw: number; dg?: number; dc?: number; ddx?: number; ddz?: number }; ents: NetEntity[]; gone: number[]; self: SelfState; worldTime: number; weather: string }
   | { type: 'pong'; t: number; st: number }
   | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' }
-  | { type: 'fx'; kind: 'cast' | 'spell' | 'hit' | 'death' | 'levelup' | 'attack' | 'loot' | 'heal' | 'castfail' | 'combo' | 'dodge' | 'parry' | 'parrystance' | 'react' | 'status' | 'dash' | 'buff'; src?: number; dst?: number; spell?: string; x?: number; y?: number; z?: number; amount?: number; crit?: boolean; weak?: boolean; text?: string; tx?: number; ty?: number; tz?: number }
+  | { type: 'fx'; kind: 'cast' | 'spell' | 'hit' | 'death' | 'levelup' | 'attack' | 'loot' | 'heal' | 'castfail' | 'combo' | 'dodge' | 'parry' | 'parrystance' | 'react' | 'status' | 'shrine' | 'dash' | 'buff'; src?: number; dst?: number; spell?: string; x?: number; y?: number; z?: number; amount?: number; crit?: boolean; weak?: boolean; text?: string; tx?: number; ty?: number; tz?: number }
   | { type: 'loot'; items: { item: string; rarity: string }[]; gold: number }
   | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted' }
   | { type: 'quest'; quest: QuestView; event: 'discovered' | 'progress' | 'complete' | 'step' }
   | { type: 'notice'; text: string; style?: 'info' | 'rank' | 'levelup' | 'warn' }
   | { type: 'died'; by: string; xpLost?: number; goldLost?: number; at?: string; wait?: number }
   | { type: 'progress'; p: ProgressView }
+  | { type: 'zone'; zone: string; x: number; y: number; z: number; yaw: number; weather: string; label: string; region: string; levels: [number, number] }
+  | { type: 'map'; zone: string; attuned: string[]; bind: string; visited: string[] }
   | { type: 'kick'; reason: string }
   | { type: 'equipment'; equipment: Record<string, string>; inventory: { item: string; rarity: string; n: number }[]; ok: boolean; error?: string };
 
