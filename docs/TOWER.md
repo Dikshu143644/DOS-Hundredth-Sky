@@ -14,6 +14,7 @@ Enter at the **Gate of the Tower** (two pillars with a portal at the north end o
 - Ten themes, one per band of ten floors (Verdant Halls, Sunken Ossuary, Ember Forge, Rime Vault, Storm Bastion, Mirror Labyrinth, Abyssal Sanctum, Clockwork Spire, Starlit Gallery, The Hundredth Sky), each with 3 monster types (30 total) built from the existing CC0 models.
 - Monster level = 38 + 0.8 × floor (floor 1 ≈ Lv 39, floor 100 ≈ Lv 118).
 - Floors spawn when someone enters and reset after 90 s with nobody on them.
+- Balance (M7 bot playtest): hall monsters have 60 % of their bestiary HP (they come in packs) and trial guardians 80 %; floor guardians keep full HP. Four Lv 60 bots in Epic gear clear floors 1–10 in about 12 minutes with no deaths; a lone Lv 60 bot without potions died in the floor-9 trial before this pass.
 
 ## Guardians (floors 10 … 100)
 Thornmaw, Warden of the First Gate · Vel'thar, the Ossuary King · Cindrax the Forge Tyrant · Glaciel, Queen of the Rime Vault · Voltaros the Storm Herald · The Mirrored Twin · Nyxaroth, the Abyss Eye · Chronarch, Keeper of Gears · Seraphine, the Fallen Star · Ascalon, the Hundredth Sky. Each has its own element, weakness, special moves and adds, and its own mythical (Ascalon: divine) item, guaranteed on the first clear and a 25 % drop afterwards.

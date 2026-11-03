@@ -33,7 +33,8 @@ export class TowerSys {
     withZone(z, () => {
       for (const m of P.monsters) {
         const e = this.spawn(m.kind, m.x, m.z, z, n, L);
-        if (m.guardian) st.guardians.add(e.id);
+        if (m.guardian) { st.guardians.add(e.id); e.mhp = e.hp = Math.round(e.hp * 0.8); }
+        else { e.mhp = e.hp = Math.round(e.hp * 0.6); } // M7 balance pass (bot playtest): hall monsters come in packs, so each is lighter
       }
       if (P.boss) { const b = this.spawn(P.boss.kind, P.boss.x, P.boss.z, z, n, L); st.boss = b.id; }
     });
