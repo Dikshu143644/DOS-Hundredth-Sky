@@ -1,12 +1,12 @@
 import { CHEATS, cheatOffer, cheatById, AFFINITIES, findFusion, fusionSlots, ADV_RANKS, RANK_PTS, rankFor, INJURIES, powerScore, type Affinity } from '../../shared/origin';
 import { CLASSES, classById, type ClassId } from '../../shared/combat';
 import { REGIONS } from '../../shared/regions';
-import { parseJsonLoose, wholeSentences } from './llm';
+import { parseJsonLoose, partialSender, wholeSentences } from './llm';
 import type { Game, Player, Monster, Ent, CharRecord } from './game';
 
 const GODDESS = {
   name: 'Aurelia', title: 'Keeper of the Hundred Skies',
-  sys: `You are Aurelia, Keeper of the Hundred Skies, a serene, warm, slightly mischievous goddess in the isekai anime-fantasy MMORPG "DOS: The Hundredth Sky". You speak to a soul whose ordinary life on Earth just ended, in the void between worlds, before you reincarnate them beneath a 100-floor Tower. Speak like a kind anime goddess: gentle, a little playful, profound, never more than 45 words. Never mention being an AI or a game. Reply ONLY as JSON {"say":"..."}.`,
+  sys: `You are Aurelia, Keeper of the Hundred Skies, a serene, warm, slightly mischievous goddess in the isekai anime-fantasy MMORPG "DOS: The Hundredth Sky". You speak to a soul whose ordinary life on Earth just ended, in the void between worlds, before you reincarnate them beneath a 100-floor Tower. Speak like a kind anime goddess: gentle, a little playful, profound, never more than 45 words. Never mention being an AI or a game. Reply with ONLY her spoken words: no quotes, no name label, no stage directions.`,
 };
 const LINES: Record<string, (s: any) => string> = {
   start: () => 'Ah… you are awake. Do not be afraid, little soul. Your life on Earth has ended, but your story has not. I am Aurelia, Keeper of the Hundred Skies. Tell me — who were you, before the light took you?',
@@ -35,9 +35,13 @@ export class Origin {
       const notes = (ch.origin?.notes ?? []).slice(-6).join(' | ');
       const ctx = `Moment: ${step}. The soul's name in the new world: ${ch.name}. What they told you of their past life: "${s.pastLife || 'nothing yet'}". Gift chosen: ${s.cheatName ?? 'not yet'}. Path: ${s.className}. Element: ${s.affinityName ?? 'not yet'}. Things you remember about them: ${notes || 'nothing yet'}.
 ${said ? `They just said to you: "${said}"` : ''}
-Your line should do this: ${step === 'talk' ? 'answer what they just said in character (warmly, briefly), then gently remind them to make the choice in front of them.' : LINES[step]?.(s) ?? 'answer them kindly.'}`;
-      const r = parseJsonLoose<{ say?: string }>(await this.g.llm.ask(p.user, [{ role: 'system', content: GODDESS.sys }, { role: 'user', content: ctx }], { maxTokens: 500, temperature: 0.9, json: true }));
-      if (r?.say) { say = wholeSentences(String(r.say), 420); source = 'llm'; }
+Your line should do this: ${step === 'talk' ? `answer what they just said in character (warmly, briefly), then gently remind them that next they must ${!ch.origin?.pastLife ? 'tell you who they were in their past life' : !s.cheat ? 'choose one of the three gifts you offered' : !(ch.origin?.notes ?? []).some((n) => n.startsWith('walks the path')) ? 'choose the path (class) they will walk' : !s.affinity ? 'choose the element their soul resonates with' : 'awaken in the new world'}.` : LINES[step]?.(s) ?? 'answer them kindly.'}`;
+      // plain text (not JSON) so the words can stream straight into her dialogue box as they arrive
+      const onPartial = partialSender((t) => p.conn?.send({ type: 'llmPartial', ctx: 'prologue', text: t }), false);
+      const raw = await this.g.llm.ask(p.user, [{ role: 'system', content: GODDESS.sys }, { role: 'user', content: ctx }], { maxTokens: 150, temperature: 0.9, onPartial });
+      const line = raw && /^\s*\{/.test(raw) ? parseJsonLoose<{ say?: string }>(raw)?.say : raw?.replace(/^\s*Aurelia\s*:\s*/, '').replace(/^\s*["“]([^"“”]*)["”]\s*$/, '$1');
+      const w = line ? wholeSentences(String(line), 420) : '';
+      if (w) { say = w; source = 'llm'; }
     }
     p.conn?.send({ type: 'prologue', step, say, source, state: this.state(ch), offer: step === 'pastlife' ? cheatOffer(ch.id) : undefined } as any);
   }

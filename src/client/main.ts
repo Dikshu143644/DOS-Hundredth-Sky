@@ -444,7 +444,8 @@ async function runPrologue(c: CharacterSummary, j: Extract<S2C, { type: 'joined'
   const { runGoddess } = await import('./ui/prologue');
   const wait = <T extends S2C['type']>(t: T) => new Promise<Extract<S2C, { type: T }>>((res) => once([t], (m) => { res(m as any); }));
   (window as any).__prologue = 'goddess';
-  await runGoddess({ send: (m) => net!.send(m), wait, scene: pro, cls: j.char.cls, name: c.name, autoSkip: PROLOGUE_SKIP });
+  const listen = (fn: (m: S2C) => void) => { const h = (m: S2C) => fn(m); handlers.push(h); return () => { const i = handlers.indexOf(h); if (i >= 0) handlers.splice(i, 1); }; };
+  await runGoddess({ send: (m) => net!.send(m), wait, listen, scene: pro, cls: j.char.cls, name: c.name, autoSkip: PROLOGUE_SKIP });
   (window as any).__prologue = 'done';
   const again = new Promise<Extract<S2C, { type: 'joined' }>>((res) => once(['joined'], (m) => { res(m); }));
   net!.send({ type: 'join', charId: c.id });

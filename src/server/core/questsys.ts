@@ -9,7 +9,7 @@ import { npcSystemPrompt, validateNpcOutput, type NpcAiOutput, type NpcMemoryRec
 import { npcByKey, NPCS, type NpcDef } from './npcdefs';
 import { rankFor } from '../../shared/origin';
 import { classById } from '../../shared/combat';
-import { parseJsonLoose, wholeSentences } from './llm';
+import { parseJsonLoose, partialSender, wholeSentences } from './llm';
 import type { Summon } from './combat';
 import { withZone } from '../../shared/world';
 import { UNIQUE_REWARD } from '../../shared/economy';
@@ -98,7 +98,7 @@ export class QuestSys {
   }
 
   // ------------------------------------------------------------------ AI NPCs (schema path)
-  async aiTalk(p: Player, def: NpcDef, mem: NpcMemoryRecord, text: string): Promise<{ say: string; mood: string; action?: string; actionText?: string; valid: boolean } | null> {
+  async aiTalk(p: Player, def: NpcDef, mem: NpcMemoryRecord, text: string, npcId?: number): Promise<{ say: string; mood: string; action?: string; actionText?: string; valid: boolean } | null> {
     const prof = def.ai!;
     if (!this.g.llm.enabled || !text) return null;
     const trust = mem.trust ?? 0;
@@ -108,7 +108,7 @@ export class QuestSys {
 LONG-TERM MEMORY of this player: ${p.name}, level ${p.char.level} ${classById(p.char.cls).name}, adventurer rank ${rankFor(p.char.advPts ?? 0)}; met you ${mem.met} times; trust ${trust}/10. ${mem.long.join('; ')}
 Their active quests: ${active.join(' | ') || 'none'}. Quests you could give now: ${avail.join(', ') || 'none'}.${def.role === 'companion' ? ` You are ${p.char.companion === def.key ? 'currently travelling with them' : 'not in their party'}.` : ''}`;
     const history = mem.short.slice(-prof.memory.shortMax).map((s) => ({ role: (s.who === 'player' ? 'user' : 'assistant') as 'user' | 'assistant', content: s.text }));
-    const raw = await this.g.llm.ask(p.user, [{ role: 'system', content: npcSystemPrompt(prof) }, { role: 'user', content: ctx }, ...history], { maxTokens: 500, temperature: 0.85, json: true });
+    const raw = await this.g.llm.ask(p.user, [{ role: 'system', content: npcSystemPrompt(prof) }, { role: 'user', content: ctx }, ...history], { maxTokens: 260 /* JSON wrapper + a ≤60-word line */, temperature: 0.85, json: true, onPartial: npcId == null ? undefined : partialSender((t) => p.conn?.send({ type: 'llmPartial', ctx: 'npc', npc: npcId, text: t }), true) });
     if (!raw) return null;
     const parsed = parseJsonLoose<unknown>(raw);
     if (!parsed) return null;

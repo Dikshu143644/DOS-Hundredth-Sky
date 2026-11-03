@@ -103,6 +103,7 @@ export type S2C =
   | { type: 'died'; by: string; xpLost?: number; goldLost?: number; at?: string; wait?: number; injury?: string; lostItem?: string; rankLost?: number }
   | { type: 'progress'; p: ProgressView }
   | { type: 'prologue'; step: string; say: string; source: 'llm' | 'scripted'; state: { pastLife: string; cheat: string | null; cls: string; affinity: string | null; offer: string[] }; offer?: string[] }
+  | { type: 'llmPartial'; ctx: 'prologue' | 'npc'; npc?: number; text: string }
   | { type: 'status'; s: StatusView }
   | { type: 'leaderboard'; rows: { name: string; cls: string; level: number; rank: string; power: number; me: boolean }[]; place: number; total: number }
   | { type: 'tower'; floor: number; name: string; seal: boolean; lit: number[]; braziers: number[]; order: number[] | null; bossDead: boolean; chest: boolean; now: number; best: number; objective: string; boss: boolean }
