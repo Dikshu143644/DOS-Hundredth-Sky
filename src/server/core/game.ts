@@ -5,6 +5,7 @@ import {
   CLASSES, classById, SPELLS, spellById, BASIC_ATTACK, MONSTERS, MonsterKind, MonsterDef, statsFor, grantXp, xpToNext,
   computeDamage, canCast, rollLoot, Stats, ClassId,
 } from '../../shared/combat';
+import { ITEMS, LEGENDARY_IDS, STARTER_WEAPON, CLASS_GIFT, SLOTS, Slot, Equipment, equip, unequip, equipBonus, addItem, rarityOf } from '../../shared/items';
 import { C2S, S2C, NetEntity, CharacterSummary, Appearance, SelfState, PROTOCOL_VERSION, sanitizeName, sanitizeChat } from '../../shared/protocol';
 import { InputBudget } from '../../shared/netcode';
 import { NPCS, NpcDef } from './npcdefs';
@@ -16,6 +17,7 @@ import { Quest, SPARKS, generateQuest, questView, DirectorContext } from './dire
 export interface CharRecord {
   id: string; name: string; cls: ClassId; level: number; xp: number; gold: number; appearance: Appearance; created: number;
   inventory: { item: string; rarity: string; n: number }[]; quests: Quest[]; sparks: string[]; deeds: string[]; kills: number; deaths: number;
+  equipment?: Equipment;
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -118,7 +120,7 @@ export class Game {
         c.authTries.push(now);
         const user = String(m.user ?? '').toLowerCase().trim();
         const pass = String(m.pass ?? '');
-        if (!/^[a-z0-9_]{3,20}$/.test(user)) return send({ type: 'auth', ok: false, error: 'Username: 3–20 letters, digits or _' });
+        if (!/^[a-z0-9_]{3,20}$/.test(user) && !/^[a-z0-9._%+-]{1,48}@[a-z0-9.-]{1,60}\.[a-z]{2,24}$/.test(user)) return send({ type: 'auth', ok: false, error: 'Use your email, or a name of 3–20 letters, digits or _' });
         if (pass.length < 6 || pass.length > 128) return send({ type: 'auth', ok: false, error: 'Password must be at least 6 characters.' });
         if (m.type === 'register') {
           if (this.data.users[user]) return send({ type: 'auth', ok: false, error: 'That name is already taken.' });
@@ -156,7 +158,7 @@ export class Game {
         const taken = Object.values(this.data.users).some((uu) => uu.chars.some((ch) => ch.name.toLowerCase() === name.toLowerCase())) || BOT_NAMES.includes(name);
         if (taken) return send({ type: 'charError', error: 'That name already walks this world.' });
         const ap = m.appearance ?? ({} as Appearance);
-        const appearance: Appearance = { tint: clampInt(ap.tint, 0, 0xffffff, 0xffffff), accent: clampInt(ap.accent, 0, 0xffffff, 0x3fd0ff), headgear: !!ap.headgear, cape: ap.cape !== false, scale: clamp(Number(ap.scale) || 1, 0.92, 1.08) };
+        const appearance: Appearance = { tint: clampInt(ap.tint, 0, 0xffffff, 0xffffff), accent: clampInt(ap.accent, 0, 0xffffff, 0x3fd0ff), headgear: !!ap.headgear, cape: ap.cape !== false, scale: clamp(Number(ap.scale) || 1, 0.92, 1.08), body: ap.body === 'f' ? 'f' : 'm' };
         const ch: CharRecord = { id: this.o.hasher.token().slice(0, 12), name, cls: m.cls, level: 1, xp: 0, gold: 10, appearance, created: Date.now(), inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0 };
         u.chars.push(ch);
         this.markDirty();
@@ -208,6 +210,21 @@ export class Game {
       case 'talk': void this.talk(p, m.npc, sanitizeChat(String(m.text ?? '')), now); return;
       case 'interact': void this.talk(p, m.target, '', now); return;
       case 'respawn': if (p.dead) this.respawnPlayer(p); return;
+      case 'equip':
+      case 'unequip': {
+        const before = p.char.equipment ?? {};
+        let ok = true, error: string | undefined;
+        if (m.type === 'equip') { const r = equip(p.char.cls, p.char.inventory, before, String(m.item ?? '')); ok = r.ok; error = r.reason; p.char.equipment = r.eq; }
+        else if ((SLOTS as string[]).includes(String(m.slot))) p.char.equipment = unequip(before, m.slot as Slot);
+        else { ok = false; error = 'unknown slot'; }
+        if (ok) {
+          const hpFrac = p.hp / p.mhp, mpFrac = p.mp / p.stats.maxMp;
+          p.stats = this.statsOf(p.char); p.mhp = p.stats.maxHp; p.hp = Math.max(1, Math.round(p.mhp * hpFrac)); p.mp = Math.round(p.stats.maxMp * mpFrac);
+          this.markDirty();
+        }
+        p.conn?.send({ type: 'equipment', equipment: (p.char.equipment ?? {}) as Record<string, string>, inventory: p.char.inventory, ok, error });
+        return;
+      }
     }
   }
 
@@ -224,10 +241,18 @@ export class Game {
     sys('Dev commands: /time H, /weather clear|rain|storm, /tp poi, /xp N, /who, /where');
   }
 
+  /** Class/level stats plus equipped item bonuses (the server is the only place this is computed). */
+  statsOf(ch: CharRecord): Stats {
+    const st = statsFor(ch.cls, ch.level);
+    const b = equipBonus(ch.equipment ?? {});
+    return { ...st, atk: st.atk + b.atk, mag: st.mag + b.mag, def: st.def + b.def, maxHp: st.maxHp + b.hp, maxMp: st.maxMp + b.mp };
+  }
+
   // ------------------------------------------------------------------ entities
   private addPlayer(conn: Conn | null, user: string, ch: CharRecord, bot?: BotBrain): Player {
     const id = this.nextId++;
-    const st = statsFor(ch.cls, ch.level);
+    ensureKit(ch);
+    const st = this.statsOf(ch);
     const s = newCharState(SPAWN.x + (this.rnd() - 0.5) * 4, SPAWN.z + (this.rnd() - 0.5) * 3, SPAWN.yaw);
     const cls = classById(ch.cls);
     const p: Player = {
@@ -239,7 +264,7 @@ export class Game {
     this.players.set(id, p);
     if (!bot) {
       this.ensureStarterQuest(p);
-      conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.weather, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView) });
+      conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.weather, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
       this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived at the Gate of Dawn.`, channel: 'world' }, id);
     }
     return p;
@@ -253,7 +278,7 @@ export class Game {
     const roles: ClassId[] = ['mage', 'warrior', 'archer', 'knight', 'healer', 'assassin'];
     const role = roles[i % roles.length];
     const ch: CharRecord = { id: 'bot' + i, name: BOT_NAMES[i % BOT_NAMES.length], cls: role, level: 2 + (i % 3), xp: 0, gold: 0, created: 0, inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0,
-      appearance: { tint: [0xffffff, 0xffe2c8, 0xd8f0ff, 0xf0d8ff][i % 4], accent: [0x3fd0ff, 0xff7a3f, 0x8dff9a, 0xffd23f][i % 4], headgear: i % 2 === 0, cape: true, scale: 1 } };
+      appearance: { tint: [0xffffff, 0xffe2c8, 0xd8f0ff, 0xf0d8ff][i % 4], accent: [0x3fd0ff, 0xff7a3f, 0x8dff9a, 0xffd23f][i % 4], headgear: i % 2 === 0, cape: true, scale: 1, body: i % 2 ? 'f' : 'm' } };
     this.addPlayer(null, 'bot', ch, { role, goal: null, target: 0, retreat: false, nextThink: 0, nextChat: this.o.now() + 30 + i * 20 });
   }
   private spawnMonster(kind: MonsterKind, x: number, z: number): Monster {
@@ -315,7 +340,7 @@ export class Game {
     if (p.inputs.length > 30) p.inputs.splice(0, p.inputs.length - 30); // drop stale backlog
     // anim state for others
     const sp = Math.hypot(p.s.vx, p.s.vz);
-    if (now > p.animUntil) p.anim = !p.s.grounded && !p.s.swimming ? (p.s.vy > 0 ? 'jump' : 'fall') : p.s.swimming ? 'swim' : sp > 7 ? 'sprint' : sp > 3.2 ? 'run' : sp > 0.4 ? 'walk' : 'idle';
+    if (now > p.animUntil) p.anim = !p.s.grounded && !p.s.swimming ? (p.s.vy > 0 ? 'jump' : 'fall') : p.s.swimming ? 'swim' : sp > 4.8 ? 'sprint' : sp > 2.2 ? 'run' : sp > 0.25 ? 'walk' : 'idle';
     if (p.casting) {
       p.anim = 'cast';
       if (now >= p.casting.until) this.finishCast(p, now);
@@ -533,7 +558,7 @@ export class Game {
     const r = grantXp(p.char.level, p.char.xp, amount);
     p.char.level = r.level; p.char.xp = r.xp; p.level = r.level;
     if (r.gained > 0) {
-      p.stats = statsFor(p.char.cls, p.char.level);
+      p.stats = this.statsOf(p.char);
       p.mhp = p.stats.maxHp; p.hp = p.mhp; p.mp = p.stats.maxMp;
       this.broadcastNear(p.s.x, p.s.z, 200, { type: 'fx', kind: 'levelup', src: p.id, x: p.s.x, y: p.s.y, z: p.s.z, amount: p.char.level });
       p.conn?.send({ type: 'notice', text: `LEVEL ${p.char.level}`, style: 'levelup' });
@@ -629,7 +654,7 @@ export class Game {
     if (mz === 0 && mx === 0 && m.ai === 'attack' && tgt) m.s.yaw = Math.atan2(-(tgt.s.x - m.s.x), -(tgt.s.z - m.s.z));
     if (now > m.animUntil) {
       const sp = Math.hypot(m.s.vx, m.s.vz);
-      m.anim = stunned ? 'hit' : sp > 2.5 ? 'run' : sp > 0.3 ? 'walk' : m.ai === 'attack' ? 'combat' : 'idle';
+      m.anim = stunned ? 'hit' : sp > 1.8 ? 'run' : sp > 0.3 ? 'walk' : m.ai === 'attack' ? 'combat' : 'idle';
     }
   }
 
@@ -787,6 +812,11 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
         this.advance(p, (s) => s.type === 'collect' && s.target === l.item.toLowerCase());
         if (l.item === 'Page of the Ninth Sky') this.spark(p, 'epic_page');
       }
+      // rare legendary drop (one the player does not own yet), weighted by monster tier
+      if (this.rnd() < (m.def.kind === 'minion' ? 0.01 : 0.025)) {
+        const missing = LEGENDARY_IDS.filter((id) => !p.char.inventory.some((e) => e.item === id));
+        if (missing.length) { const id = missing[Math.floor(this.rnd() * missing.length)]; p.char.inventory = addItem(p.char.inventory, id); loot.push({ item: id, rarity: rarityOf(ITEMS[id].rarity).name }); this.worldEvent(`${p.name} found the legendary ${ITEMS[id].name}`); }
+      }
       p.conn?.send({ type: 'loot', items: loot, gold });
       if (loot.length) this.broadcastNear(m.s.x, m.s.z, 120, { type: 'fx', kind: 'loot', x: m.s.x, y: m.s.y, z: m.s.z, text: loot.map((l) => l.rarity).join(',') });
     }
@@ -862,6 +892,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
         seen.add(e.id);
         const ne: NetEntity = { id: e.id, t: e.type, x: r2(e.s.x), y: r2(e.s.y), z: r2(e.s.z), r: r2(e.s.yaw), a: e.anim, hp: Math.round(e.hp), mhp: e.mhp };
         if ((e as Player).casting) ne.c = (e as Player).casting!.spell;
+        if (e.type === 'p' || e.type === 'b') { const w = (e as Player).char.equipment?.weapon; if (w) ne.w = w; }
         if (!p.known.has(e.id)) {
           ne.n = e.name; ne.k = e.model; ne.lv = e.level;
           if (e.type === 'p' || e.type === 'b') ne.ap = (e as Player).char.appearance;
@@ -928,4 +959,12 @@ function npcTree(g: Game): BTNode<Npc> {
     new Sequence<Npc>([new Cond(() => g.worldTime >= 7 && g.worldTime < 18.5), goTo((n) => n.def.work)]),
     goTo((n) => n.def.evening),
   ]);
+}
+
+/** Every character carries its class starter weapon and the Tower's legendary gift (equipped);
+ *  older saves are backfilled the first time they join. */
+export function ensureKit(ch: CharRecord) {
+  if (ch.equipment) return;
+  for (const id of [STARTER_WEAPON[ch.cls], CLASS_GIFT[ch.cls]]) if (!ch.inventory.some((e) => e.item === id)) ch.inventory = addItem(ch.inventory, id);
+  ch.equipment = { weapon: CLASS_GIFT[ch.cls] };
 }

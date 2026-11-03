@@ -92,6 +92,8 @@ export class Hud {
     this.hintEl = el('div', 'hint hidden'); this.root.appendChild(this.hintEl);
     this.root.appendChild(el('div', 'crosshair'));
     const mb = el('button', 'menu-btn', '☰'); mb.onclick = () => this.toggleMenu(); this.root.appendChild(mb);
+    const ib = el('button', 'inv-btn', '🎒'); ib.title = 'Inventory (I)'; ib.onclick = () => this.g.openInventory(); this.root.appendChild(ib);
+    const ab = el('button', 'inv-btn ar', '⚔'); ab.title = 'Legendary armory (K)'; ab.onclick = () => this.g.action('armory'); this.root.appendChild(ab);
     this.chat('System', `Welcome, ${char.name}. WASD to move · mouse to look · 1/2/3 spells · F attack · E talk · Tab target · Esc menu.`, 'system');
     if (g.net.mode === 'offline') this.chat('System', 'Offline world: the same server code runs in your browser, with AI adventurers for company.', 'system');
   }
