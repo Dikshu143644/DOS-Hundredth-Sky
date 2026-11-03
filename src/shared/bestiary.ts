@@ -1,5 +1,6 @@
 import type { MonsterDef, Element } from './combat';
 import { TOWER_SPECS } from './tower';
+import { SOCIAL_SPECS } from './instances';
 
 /** Phase 4 · M2 bestiary: every region's monsters and its field boss. Models are Quaternius CC0
  *  monsters (q:<file>) or the KayKit skeletons, re-tinted. Stats scale from the level. */
@@ -53,6 +54,8 @@ const SPECS = [
   ]),
   // Phase 4 · M5: the Hundredth Tower's floors (30 monsters) and its ten floor guardians
   ...S('tower', TOWER_SPECS as Spec[]),
+  // Phase 4 · M6: world bosses, the raid boss and its adds
+  ...S('capital', SOCIAL_SPECS as Spec[]),
 ];
 
 export interface BeastDef extends MonsterDef { height?: number }

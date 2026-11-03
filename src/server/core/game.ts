@@ -17,6 +17,8 @@ import { QuestSys } from './questsys';
 import { Market } from './market';
 import { rollDrops } from '../../shared/economy';
 import { TowerSys } from './tower';
+import { Social } from './social';
+import { AntiCheat } from './anticheat';
 import { floorOf, floorPlan } from '../../shared/tower'; // also registers the M4 items
 import { scheduleAt } from '../../shared/npcai';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
@@ -31,6 +33,7 @@ export interface CharRecord {
   id: string; name: string; cls: ClassId; level: number; xp: number; gold: number; appearance: Appearance; created: number;
   inventory: { item: string; rarity: string; n: number }[]; quests: Quest[]; sparks: string[]; deeds: string[]; kills: number; deaths: number;
   equipment?: Equipment;
+  guild?: string;
   attrs?: Partial<Record<Attr, number>>; skillRanks?: Record<string, number>; adv?: string | null; titles?: string[]; title?: string | null;
   rep?: Record<string, number>; mastery?: Record<string, number>; counters: Record<string, number>; shrine?: string; zone?: string;
   shrines?: string[]; bind?: string; visited?: string[];
@@ -45,6 +48,7 @@ export interface SaveData {
   sessions: Record<string, { user: string; exp: number }>;
   npcMemory: Record<string, Record<string, NpcMemory>>;
   worldEvents: string[];
+  guilds?: Record<string, import('./social').Guild>;
 }
 export interface Store { load(): SaveData | null; save(d: SaveData): void }
 export interface Hasher { hash(pw: string): Promise<string>; verify(pw: string, stored: string): Promise<boolean>; token(): string }
@@ -109,12 +113,14 @@ export class Game {
   quests!: QuestSys;
   market!: Market;
   tower!: TowerSys;
+  social!: Social;
+  anti = new AntiCheat((id, reason) => { const c = this.conns.get(id); c?.conn.send({ type: 'kick', reason }); this.disconnect(id); c?.conn.close?.(); });
   onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
   removeEnt(id: number) { this.ents.delete(id); }
   /** PvP: players are hostile to each other only inside a duel/arena (set by the social system). */
-  pvpHostile(a: Ent, b: Ent): boolean { void a; void b; return false; }
+  pvpHostile(a: Ent, b: Ent): boolean { return !!this.social?.hostile(a, b); }
   weatherAt(p: Ent): string { return this.zones.weatherOf(p.zone); }
   poiIdAt(x: number, z: number): string | null { return poiAt(x, z)?.id ?? null; }
 
@@ -128,6 +134,7 @@ export class Game {
     this.quests = new QuestSys(this);
     this.market = new Market(this);
     this.tower = new TowerSys(this);
+    this.social = new Social(this);
     for (const z of ZONE_IDS) withZone(z, () => buildZone());
     setActiveZone('capital');
     this.zones.spawnAll();
@@ -145,7 +152,8 @@ export class Game {
   }
   disconnect(connId: number) {
     const c = this.conns.get(connId);
-    if (c?.player) { this.market.onLeave(c.player); this.removePlayer(c.player); }
+    if (c?.player) { this.market.onLeave(c.player); this.social.onLeave(c.player); this.removePlayer(c.player); }
+    this.anti.forget(connId);
     this.conns.delete(connId);
   }
 
@@ -228,7 +236,45 @@ export class Game {
     }
     const p = c.player;
     if (!p) return;
+    if (!this.anti.allow(connId, String(m.type), now)) return;
+    if (!this.sane(p, m, now)) return;
     withZone(p.zone, () => this.handlePlayerMsg(p, m, now));
+  }
+
+  private socialOp(p: Player, m: { op: string; [k: string]: unknown }) {
+    const S = this.social, a = m as any;
+    const target = () => (a.id ? this.players.get(Number(a.id)) : [...this.players.values()].find((x) => x.type === 'p' && x.name.toLowerCase() === String(a.name ?? '').toLowerCase()));
+    switch (m.op) {
+      case 'state': return S.sendAll(p);
+      case 'invite': return S.invite(p, target());
+      case 'accept': return S.accept(p);
+      case 'decline': return S.decline(p);
+      case 'leave': return S.leave(p);
+      case 'kick': return S.kick(p, Number(a.id));
+      case 'promote': return S.promote(p, Number(a.id));
+      case 'gcreate': return S.createGuild(p, String(a.name ?? ''), String(a.tag ?? ''));
+      case 'gjoin': return S.joinGuild(p, String(a.id ?? ''));
+      case 'ginvite': return S.guildInvite(p, target());
+      case 'gaccept': return S.acceptGuild(p);
+      case 'gleave': return S.leaveGuild(p);
+      case 'gchat': return S.guildChat(p, sanitizeChat(String(a.text ?? '')));
+      case 'gop': return S.guildOp(p, String(a.sub ?? ''), a);
+      case 'arenaJoin': return S.queueJoin(p);
+      case 'arenaLeave': return S.queueLeave(p);
+      case 'raid': if (REGIONS[p.zone as 'capital']?.town && (p.zone === 'capital' || p.zone === 'tower')) return S.enterRaid(p, !!this.o.dev && !!a.solo); return void p.conn?.send({ type: 'notice', text: 'Gather your party in the Capital or at the Foot of the Tower to enter the raid.', style: 'warn' });
+    }
+  }
+
+  /** Anti-cheat: every entity a client names must exist in its zone and be in reach; aim points and
+   *  numbers must be finite and near the player. Bad values are stripped and the connection gets a strike. */
+  private sane(p: Player, m: C2S, now: number): boolean {
+    const id = p.conn?.id ?? -1, a = m as any;
+    const reach = (eid: unknown, max: number) => { if (eid === undefined || eid === null || eid === 0) return true; const e = this.ents.get(Number(eid)); return !!e && e.zone === p.zone && Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z) <= max; };
+    if ((m.type === 'attack' || m.type === 'cast') && !reach(a.target, 70)) { this.anti.strike(id, 'target', now); a.target = undefined; }
+    if (m.type === 'cast' && a.aimX !== undefined && !(AntiCheat.num(a.aimX, p.s.x - 80, p.s.x + 80) && AntiCheat.num(a.aimZ, p.s.z - 80, p.s.z + 80) && AntiCheat.num(a.aimY, -200, 400))) { this.anti.strike(id, 'aim', now); a.aimX = a.aimY = a.aimZ = undefined; }
+    if ((m.type === 'talk' && !reach(a.npc, 16)) || (m.type === 'interact' && !reach(a.target, 16))) { this.anti.strike(id, 'reach', now); return false; }
+    if (m.type === 'input' && !(AntiCheat.num(a.dt, 0, 0.25) && AntiCheat.num(a.mx ?? 0, -1.5, 1.5) && AntiCheat.num(a.mz ?? 0, -1.5, 1.5))) { this.anti.strike(id, 'input', now); return false; }
+    return true;
   }
 
   private handlePlayerMsg(p: Player, m: C2S, now: number) {
@@ -251,6 +297,7 @@ export class Game {
       case 'towerBoard': this.tower.leaderboard(p); return;
       case 'towerEnter': this.tower.enter(p, Number((m as any).floor), now); return;
       case 'towerGate': if (p.zone === 'tower') this.tower.sendGate(p); return;
+      case 'social': this.socialOp(p, m as any); return;
       case 'board': this.quests.sendBoard(p); return;
       case 'craft': this.market.craft(p, String((m as any).recipe)); return;
       case 'enchant': this.market.enchant(p, String((m as any).item)); return;
@@ -307,7 +354,15 @@ export class Game {
     if (cmd === 'trade') { const t = [...this.players.values()].find((x) => x.type === 'p' && x.name.toLowerCase() === (arg ?? '').toLowerCase()); return this.market.request(p, t); }
     if (cmd === 'who') return sys(`${[...this.players.values()].filter((x) => x.type === 'p').length} player(s), ${[...this.players.values()].filter((x) => x.type === 'b').length} adventurer bot(s) in the zone.`);
     if (cmd === 'where') { const poi = poiAt(p.s.x, p.s.z); return sys(`${poi ? poi.name : REGIONS[p.zone as 'capital']?.name} (${p.s.x.toFixed(0)}, ${p.s.z.toFixed(0)})`); }
-    if (!this.o.dev) return sys('Commands: /who, /where');
+    const rest = text.slice(1 + cmd.length).trim();
+    if (cmd === 'p') return this.social.partyChat(p, rest);
+    if (cmd === 'g') return this.social.guildChat(p, rest);
+    if (cmd === 'invite') return this.social.invite(p, [...this.players.values()].find((x) => x.type === 'p' && x.name.toLowerCase() === rest.toLowerCase()));
+    if (cmd === 'leave') return this.social.leave(p);
+    if (cmd === 'arena') return this.social.queueJoin(p);
+    if (!this.o.dev) return sys('Commands: /who, /where, /p party chat, /g guild chat, /invite name, /leave, /arena');
+    if (cmd === 'worldboss') { this.social.worldBossNow(); return sys('World boss summoned.'); }
+    if (cmd === 'raid') return this.social.enterRaid(p, true);
     if (cmd === 'time') { const h = clamp(Number(arg), 0, 24); this.worldTime = h; return sys(`World time set to ${h}:00.`); }
     if (cmd === 'weather' && arg) { this.zones.weather[p.zone] = { w: arg, until: this.o.now() + 600 }; return sys(`Weather: ${arg}.`); }
     if (cmd === 'floor') { const n = Math.max(1, Math.min(100, Number(arg) || 1)); p.char.counters.towerBest = Math.max(p.char.counters.towerBest ?? 0, n - 1); this.tower.go(p, n); return; }
@@ -370,7 +425,7 @@ export class Game {
       queueMicrotask(() => this.zones.sendMap(p));
       conn!.send({ type: 'joined', prologue: !bot && this.origin.needsPrologue(ch), id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
       conn!.send(this.quests.aiStatus());
-      setTimeout(() => { conn!.send(this.quests.aiStatus()); conn!.send({ type: 'inv', inventory: ch.inventory, gold: ch.gold, enchant: ch.enchant ?? {}, equipment: (ch.equipment ?? {}) as Record<string, string> }); }, 2500); // again once the client has built its HUD
+      setTimeout(() => { this.social.sendAll(p); conn!.send(this.quests.aiStatus()); conn!.send({ type: 'inv', inventory: ch.inventory, gold: ch.gold, enchant: ch.enchant ?? {}, equipment: (ch.equipment ?? {}) as Record<string, string> }); }, 2500); // again once the client has built its HUD
       if (!(p as any).hidden) this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
       this.progress.send(p);
       this.progress.award(p, 'newcomer');
@@ -418,7 +473,8 @@ export class Game {
     this.weather = this.zones.weatherOf('capital') as any;
     // Phase 4: tick zone by zone with that zone's geometry active
     this.tower.tick(now);
-    for (const z of [...ZONE_IDS, ...this.tower.liveZones()]) {
+    this.social.tick(now);
+    for (const z of [...ZONE_IDS, ...this.tower.liveZones(), ...this.social.liveZones()]) {
       setActiveZone(z);
       for (const p of this.players.values()) if (p.zone === z) { this.tickPlayer(p, now, dt); if (p.zone === z) this.zones.tickPlayer(p, now); }
       if (!this.zones.active(z)) continue;
@@ -522,6 +578,7 @@ export class Game {
 
   kill(src: Ent, dst: Ent, now: number) {
     if (dst.dead) return;
+    if (dst.type === 'p' && this.social.arenaKO(dst as Player, src)) return; // the Crimson Ring: a KO, not a death
     if (dst.type === 'p' && this.origin.rewind(dst as Player, now)) return; // Second Dawn
     dst.hp = 0;
     dst.dead = true;
@@ -544,8 +601,9 @@ export class Game {
         if (m.def.boss) { p.char.counters.bosses = (p.char.counters.bosses ?? 0) + 1; this.progress.checkTitles(p); }
       }
       if (m.def.boss) this.broadcastAll({ type: 'chat', from: 'World', text: `${killer.name} and allies have slain ${m.def.name}!`, channel: 'world' });
+      const hitters = [...m.threat.keys()];
       m.threat.clear();
-      this.onMonsterKilled(m, killer, now);
+      this.onMonsterKilled(m, killer, now, hitters);
     } else {
       const p = dst as Player;
       p.casting = null;
@@ -562,7 +620,7 @@ export class Game {
     }
   }
   /** hook for later systems (world bosses, tower, quests) */
-  onMonsterKilled(m: Monster, killer: Ent, now: number) { this.origin.onKill(m, killer, now); this.tower.onKill(m); }
+  onMonsterKilled(m: Monster, killer: Ent, now: number, hitters: number[] = []) { this.origin.onKill(m, killer, now); this.tower.onKill(m); this.social.onKill(m, killer, hitters); }
 
   /** Where a fallen player comes back (the last shrine they touched). */
   shrineName(p: Player) { return this.zones.bindPos(p).name; }
@@ -1039,7 +1097,7 @@ export class Game {
     for (const [k, v] of Object.entries(this.data.sessions)) if (v.exp < t) delete this.data.sessions[k];
     try { this.o.store.save(this.data); } catch (e) { this.o.log?.('save failed', e); }
   }
-  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited, cached: this.llm.cached }, worldTime: this.worldTime, weather: this.weather }; }
+  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited, cached: this.llm.cached }, worldTime: this.worldTime, weather: this.weather, anticheat: this.anti.stats, social: { parties: this.social.parties.size, guilds: Object.keys(this.data.guilds ?? {}).length, raids: this.social.raids.size, arenaQueue: this.social.queue.length, worldBoss: this.social.wb.state } }; }
 }
 
 // ------------------------------------------------------------------ helpers

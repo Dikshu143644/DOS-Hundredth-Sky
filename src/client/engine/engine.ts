@@ -6,6 +6,7 @@ import { Foliage, wind } from './foliage';
 import { City } from './city';
 import { Tower } from './tower';
 import { floorOf } from '../../shared/tower';
+import { arenaOf } from '../../shared/instances';
 import { Settlement } from './settlement';
 import { setActiveZone, REGION, ZONE, TOWER } from '../../shared/world';
 import { Post } from './post';
@@ -173,7 +174,7 @@ export class Engine {
     this.settlement?.dispose();
     this.settlement = new Settlement(this.scene);
     this.tower.group.position.set(TOWER.x, 0, TOWER.z);
-    this.tower.group.visible = !floorOf(ZONE);
+    this.tower.group.visible = !floorOf(ZONE) && !arenaOf(REGION);
     onStep('Growing the wilds');
     const old = this.foliage;
     this.foliage = new Foliage(this.scene);

@@ -28,6 +28,8 @@ import type { ProgressView } from '../../shared/protocol';
 import { heightAt, WATER_LEVEL, SEALS_OPEN } from '../../shared/world';
 import { floorOf, floorId } from '../../shared/tower';
 import { towerGate } from '../ui/towergate';
+import { socialPanel, socialInvite } from '../ui/social';
+import { ITEMS } from '../../shared/items';
 
 interface Remote { id: number; t: NetEntity['t']; view: CharacterView; buf: InterpBuffer; ent: NetEntity; name: string; key: string; lv: number; plate: HTMLElement; lastPos: THREE.Vector3; speed: number }
 
@@ -138,6 +140,12 @@ export class GameClient {
       case 'status': this.status = m.s; this.hud.setFusions(m.s.fusions); this.hud.setRank(m.s.rank); this.statusUi?.update(m.s); break;
       case 'leaderboard': this.ranksUi?.update(m); break;
       case 'towerBoard': this.ranksUi?.updateTower(m); break;
+      case 'party': this.soc.party = m.party; this.hud.setParty(m.party, this.myId); this.socialUi?.update(); break;
+      case 'guild': this.soc.guild = m.guild; this.soc.list = m.list ?? []; this.socialUi?.update(); break;
+      case 'arena': if (m.inMatch && !this.soc.arena?.inMatch) this.socialUi?.close(); this.soc.arena = m; this.socClock = m.now - performance.now() / 1000; this.socialUi?.update(); this.refreshEvent(); break;
+      case 'raid': this.soc.raid = m.k ? m : null; if (m.now) this.socClock = m.now - performance.now() / 1000; this.refreshEvent(); break;
+      case 'worldboss': this.soc.wb = m; this.socClock = m.now - performance.now() / 1000; this.refreshEvent(); break;
+      case 'invite': socialInvite(m.kind === 'guild' ? `<b>${String(m.from).replace(/[<>&]/g, '')}</b> invites you to the guild <b>${String(m.guild).replace(/[<>&]/g, '')}</b>` : `<b>${String(m.from).replace(/[<>&]/g, '')}</b> invites you to a party`, () => this.net.send({ type: 'social', op: m.kind === 'guild' ? 'gaccept' : 'accept' }), () => this.net.send({ type: 'social', op: 'decline' })); break;
       case 'tower': this.onTower(m); break;
       case 'towerGate': this.openTowerGate(m); break;
     }
@@ -322,6 +330,7 @@ export class GameClient {
     if (a === 'hero') return this.openHero();
     if (a === 'status') return this.openStatus();
     if (a === 'ranks') return this.openRanks();
+    if (a === 'social') return this.openSocial();
     const fm = /^fusion([1-3])$/.exec(a);
     if (fm) { const f = this.status?.fusions[Number(fm[1]) - 1]; if (!f) { this.hud.notice(this.status?.fusionSlots ? 'Fuse a skill in your Status window (U)' : 'Skill fusion awakens at level 5 (U)', 'warn'); return; } this.cast(f); return; }
     if (this.dead) return;
@@ -407,6 +416,26 @@ export class GameClient {
     document.exitPointerLock?.();
     this.statusUi = statusWindow({ s: this.status, send: (m) => this.net.send(m), onClose: () => { this.statusUi = null; } });
     this.net.send({ type: 'status' });
+  }
+  soc: { party: any; guild: any; list: any[]; arena: any; wb: any; raid: any } = { party: null, guild: null, list: [], arena: null, wb: null, raid: null };
+  socClock = 0;
+  socialUi: ReturnType<typeof socialPanel> | null = null;
+  private evTimer = setInterval(() => this.refreshEvent(), 1000);
+  openSocial(tab?: string) {
+    if (this.socialUi) { this.socialUi.close(); return; }
+    document.exitPointerLock?.();
+    this.socialUi = socialPanel({ tab, send: (m) => this.net.send(m), onClose: () => { this.socialUi = null; },
+      state: () => ({ ...this.soc, myId: this.myId, inventory: this.hud.inventory, itemName: (id: string) => ITEMS[id]?.name ?? id, gold: this.gold, clock: () => performance.now() / 1000 + this.socClock }) });
+  }
+  /** One glass chip at the top: the arena bell, the raid's boss and eclipse clock, or the world boss. */
+  refreshEvent() {
+    const now = performance.now() / 1000 + this.socClock, S = this.soc, mm = (s: number) => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+    if (S.arena?.inMatch && S.arena.startAt) return this.hud.setEvent(now < S.arena.startAt ? { title: 'The Crimson Ring', text: `Fight in ${Math.ceil(S.arena.startAt - now)}…`, cls: 'arena' } : { title: 'The Crimson Ring', text: `Ranked duel · ${mm(S.arena.endAt - now)}`, cls: 'arena' });
+    if (S.raid?.k) return this.hud.setEvent({ title: 'Kaelthar, the Eclipse Dragon', text: S.raid.done ? 'Defeated! Returning soon.' : `Phase ${S.raid.phase + 1}/3 · eclipse in ${mm(S.raid.enrageAt - now)}`, hp: S.raid.done ? 0 : S.raid.hp / Math.max(1, S.raid.mhp), cls: 'raid' });
+    const W = S.wb;
+    if (W && W.state === 'soon') return this.hud.setEvent({ title: 'World boss', text: `${W.name} rises in ${W.region} in ${mm(W.at - now)}`, cls: 'wb' });
+    if (W && W.state === 'active') return this.hud.setEvent({ title: W.name, text: `World boss · ${W.where} (${W.region}) · ${mm(W.at - now)}`, hp: W.hp / Math.max(1, W.mhp), cls: 'wb' });
+    this.hud.setEvent(null);
   }
   towerState: any = null;
   towerClock = 0;

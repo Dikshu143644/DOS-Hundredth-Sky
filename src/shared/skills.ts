@@ -177,6 +177,10 @@ export const TITLES: TitleDef[] = [
   { id: 'tower_50', name: 'Halfway to the Sky', desc: 'Clear floor 50 of the Hundredth Tower.' },
   { id: 'tower_80', name: 'Keeper of Hours', desc: 'Clear floor 80 of the Hundredth Tower.' },
   { id: 'tower_100', name: 'The Hundredth Sky', desc: 'Stand on the summit of the Hundredth Tower.' },
+  { id: 'guild_founder', name: 'Guild Founder', desc: 'Found a guild.' },
+  { id: 'world_breaker', name: 'World Breaker', desc: 'Help bring down a world boss.' },
+  { id: 'eclipse_breaker', name: 'Eclipse Breaker', desc: 'Defeat Kaelthar in the Eclipse Throne raid.' },
+  { id: 'gladiator', name: 'Gladiator of the Crimson Ring', desc: 'Win 10 arena matches.' },
   { id: 'storm_caller', name: 'Storm-Caller', desc: 'Cast lightning in a storm.' },
   { id: 'elementalist', name: 'Elementalist', desc: 'Trigger 10 elemental combos.' },
 ];

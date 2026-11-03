@@ -5,7 +5,8 @@ import { REGIONS } from '../../shared/regions';
 import { worldUV, type TorchInfo } from './city';
 import { tex } from './assets';
 import { floorOf } from '../../shared/tower';
-import { FloorDeco } from './floor';
+import { FloorDeco, ArenaDeco } from './floor';
+import { arenaOf } from '../../shared/instances';
 
 function pbr(name: string, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) {
   return new THREE.MeshStandardMaterial({ map: tex(`tex/${name}_col.jpg`), normalMap: tex(`tex/${name}_nor.jpg`, { srgb: false }), roughness: 0.9, metalness: 0, ...extra });
@@ -35,6 +36,7 @@ export class Settlement {
   windowMat: THREE.MeshStandardMaterial;
   labels: { pos: THREE.Vector3; text: string }[] = [];
   floor: FloorDeco | null = null;
+  arena: ArenaDeco | null = null;
 
   constructor(public scene: THREE.Scene) {
     scene.add(this.group);
@@ -78,8 +80,8 @@ export class Settlement {
       }
       // town centre: bonfire ring / well
       const ty = heightAt(R.town.x, R.town.z);
-      if (!floorOf(ZONE)) rockG.push(bake(worldUV(new THREE.CylinderGeometry(2.2, 2.4, 0.9, 20), 2), R.town.x, ty + 0.45, R.town.z));
-      if (!floorOf(ZONE)) runeG.push(bake(new THREE.OctahedronGeometry(0.5), R.town.x, ty + 2.6, R.town.z));
+      if (!floorOf(ZONE) && !arenaOf(REGION)) rockG.push(bake(worldUV(new THREE.CylinderGeometry(2.2, 2.4, 0.9, 20), 2), R.town.x, ty + 0.45, R.town.z));
+      if (!floorOf(ZONE) && !arenaOf(REGION)) runeG.push(bake(new THREE.OctahedronGeometry(0.5), R.town.x, ty + 2.6, R.town.z));
       // ruins
       for (const r of zone.ruins) {
         const g = heightAt(r.x, r.z);
@@ -154,6 +156,7 @@ export class Settlement {
         this.torches.push({ pos: new THREE.Vector3(t.x, t.y + 0.6, t.z), flame: s });
       }
       if (floorOf(ZONE)) this.floor = new FloorDeco(scene, floorOf(ZONE), flameTex);
+      if (arenaOf(REGION)) this.arena = new ArenaDeco(scene, arenaOf(REGION)!);
     }
   }
   update(t: number, night: number) {
@@ -172,6 +175,7 @@ export class Settlement {
   }
   dispose() {
     this.floor?.dispose(this.scene);
+    this.arena?.dispose(this.scene);
     this.scene.remove(this.group);
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
   }
