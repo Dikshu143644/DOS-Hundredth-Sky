@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { GameClient } from './client';
 import type { CharacterSummary, NetEntity, QuestView, SelfState } from '../../shared/protocol';
-import { SPELLS, SpellDef, classById } from '../../shared/combat';
+import { SpellDef, classById } from '../../shared/combat';
+import { skillForSlot, rankScale, SKILLS } from '../../shared/skills';
+import type { ProgressView } from '../../shared/protocol';
 import { NPCS } from '../../server/core/npcdefs';
 import { buildZone, POIS, poiAt, LAKE, ROAD, ROAD2, ROAD3, TOWER, heightAt } from '../../shared/world';
 import { settings } from '../settings';
@@ -21,7 +23,17 @@ export function spellIcon(sp: SpellDef | 'attack', size = 64): HTMLCanvasElement
   g.strokeStyle = col; g.lineWidth = 2.5; g.shadowColor = col; g.shadowBlur = 10; g.translate(size / 2, size / 2);
   if (sp === 'attack') { g.beginPath(); g.moveTo(-14, 14); g.lineTo(14, -14); g.moveTo(8, -16); g.lineTo(16, -8); g.moveTo(-16, 8); g.lineTo(-8, 16); g.stroke(); }
   else if (sp.id === 'ignis') { g.beginPath(); for (let i = 0; i < 3; i++) { g.moveTo(-10 + i * 10, 16); g.quadraticCurveTo(-18 + i * 12, -2, -4 + i * 6, -18 + i * 4); } g.stroke(); g.beginPath(); g.arc(0, 6, 9, 0, Math.PI * 2); g.stroke(); }
-  else if (sp.id === 'fulgur') { g.beginPath(); g.moveTo(6, -20); g.lineTo(-6, 0); g.lineTo(4, 0); g.lineTo(-6, 20); g.stroke(); }
+  else if (sp.id === 'fulgur' || sp.fx === 'fulgur') { g.beginPath(); g.moveTo(6, -20); g.lineTo(-6, 0); g.lineTo(4, 0); g.lineTo(-6, 20); g.stroke(); }
+  else if (sp.fx === 'slash') { g.beginPath(); g.arc(-4, 6, 18, -1.4, 0.2); g.stroke(); g.beginPath(); g.arc(4, -2, 14, -1.2, 0.4); g.stroke(); }
+  else if (sp.fx === 'arrow' || sp.fx === 'rain') { const n = sp.fx === 'rain' ? 3 : 1; for (let i = 0; i < n; i++) { const o = (i - (n - 1) / 2) * 10; g.beginPath(); g.moveTo(-14 + o, 14); g.lineTo(12 + o, -12); g.moveTo(12 + o, -12); g.lineTo(4 + o, -12); g.moveTo(12 + o, -12); g.lineTo(12 + o, -4); g.stroke(); } }
+  else if (sp.fx === 'quake') { g.beginPath(); g.moveTo(-20, 8); g.lineTo(-8, 2); g.lineTo(-2, 12); g.lineTo(6, 0); g.lineTo(20, 6); g.moveTo(-6, -14); g.lineTo(0, -4); g.lineTo(6, -14); g.stroke(); }
+  else if (sp.fx === 'dash' || sp.fx === 'shadow') { for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(-18, -8 + i * 8); g.lineTo(6, -8 + i * 8); g.stroke(); } g.beginPath(); g.moveTo(8, -14); g.lineTo(18, 0); g.lineTo(8, 14); g.stroke(); }
+  else if (sp.fx === 'aura' || sp.kind === 'buff') { g.beginPath(); g.moveTo(0, -18); g.lineTo(14, -10); g.lineTo(12, 8); g.lineTo(0, 18); g.lineTo(-12, 8); g.lineTo(-14, -10); g.closePath(); g.stroke(); g.beginPath(); g.moveTo(0, -8); g.lineTo(0, 8); g.moveTo(-7, 0); g.lineTo(7, 0); g.stroke(); }
+  else if (sp.fx === 'heal') { g.lineWidth = 5; g.beginPath(); g.moveTo(0, -14); g.lineTo(0, 14); g.moveTo(-14, 0); g.lineTo(14, 0); g.stroke(); }
+  else if (sp.fx === 'summon') { g.beginPath(); g.arc(0, 0, 15, 0, Math.PI * 2); g.stroke(); for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2 - Math.PI / 2, b = ((i + 2) / 5) * Math.PI * 2 - Math.PI / 2; g.moveTo(Math.cos(a) * 15, Math.sin(a) * 15); g.lineTo(Math.cos(b) * 15, Math.sin(b) * 15); } g.stroke(); }
+  else if (sp.fx === 'frost') { for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI; g.beginPath(); g.moveTo(Math.cos(a) * 18, Math.sin(a) * 18); g.lineTo(-Math.cos(a) * 18, -Math.sin(a) * 18); g.stroke(); } }
+  else if (sp.fx === 'gale' || sp.fx === 'ring') { for (let i = 1; i <= 3; i++) { g.beginPath(); g.arc(0, 0, i * 6, 0.3 * i, Math.PI * 1.6 + 0.3 * i); g.stroke(); } }
+  else if (sp.fx === 'meteor') { g.beginPath(); g.arc(6, 6, 9, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(-1, -1); g.lineTo(-18, -18); g.moveTo(4, -4); g.lineTo(-10, -20); g.moveTo(-4, 4); g.lineTo(-20, -10); g.stroke(); }
   else { g.beginPath(); g.arc(0, 0, 9, 0, Math.PI * 2); g.stroke(); for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; g.moveTo(Math.cos(a) * 13, Math.sin(a) * 13); g.lineTo(Math.cos(a) * 20, Math.sin(a) * 20); } g.stroke(); }
   return c;
 }
@@ -30,7 +42,7 @@ export class Hud {
   root: HTMLElement;
   private hpBar!: HTMLElement; private hpLag!: HTMLElement; private hpTxt!: HTMLElement; private mpBar!: HTMLElement; private mpTxt!: HTMLElement; private xpBar!: HTMLElement; private lvl!: HTMLElement;
   private pingEl!: HTMLElement; private pingTxt!: HTMLElement; private fpsEl!: HTMLElement; private clockEl!: HTMLElement;
-  private skillEls = new Map<string, { root: HTMLElement; cd: HTMLElement }>();
+  private skillEls = new Map<string, { root: HTMLElement; cd: HTMLElement; sp: SpellDef; rank: number; known: boolean }>();
   private castEl!: HTMLElement; private chantEl!: HTMLElement; private castFill!: HTMLElement;
   private chatLog!: HTMLElement; private chatInput!: HTMLInputElement;
   private questsEl!: HTMLElement; private quests = new Map<string, QuestView>();
@@ -44,6 +56,40 @@ export class Hud {
   private menuOpen = false;
   inventory: { item: string; rarity: string; n: number }[] = [];
   private zoneShown = '';
+  private skillsEl!: HTMLElement; private comboEl!: HTMLElement; private statusEl!: HTMLElement; private comboShown = 0;
+  progress: ProgressView | null = null;
+  level = 1;
+  /** The 1–4, advanced (5) and ultimate (R) slots for this class, locked until learned. */
+  buildSkills() {
+    const g = this.g, cls = this.char.cls, adv = this.progress?.adv ?? null, lvl = this.level;
+    this.skillsEl.innerHTML = '';
+    this.skillEls.clear();
+    const keyName = (a: string) => (settings.bindings[a] ?? '').replace(/^Key|^Digit/, '').replace('ShiftLeft', '⇧').replace('Space', '␣') || '·';
+    const atk = el('div', 'skill attack', `<span class="key">${keyName('attack')}</span><div class="cd"></div><span class="nm">ATTACK</span>`);
+    atk.prepend(spellIcon('attack')); atk.onclick = () => g.action('attack'); this.skillsEl.appendChild(atk);
+    for (const slot of [1, 2, 3, 4, 5, 6]) {
+      const sp = skillForSlot(cls, slot, adv) ?? (slot === 5 ? SKILLS.find((s) => s.cls === cls && s.slot === 5) : undefined);
+      if (!sp) continue;
+      const known = lvl >= sp.unlock && (slot !== 5 || sp.adv === adv);
+      const rank = this.progress?.ranks[sp.id] ?? 1;
+      const action = slot === 6 ? 'ult' : 'spell' + slot;
+      const s = el('div', `skill ${known ? '' : 'locked'} ${slot === 6 ? 'ult' : ''} ${slot === 5 ? 'adv' : ''}`, `<span class="key">${keyName(action)}</span><div class="cd"></div><span class="nm">${sp.name}</span>${known ? (rank > 1 ? `<span class="rk">${'◆'.repeat(rank - 1)}</span>` : '') : `<span class="lock">${slot === 5 ? 'Lv 20 path' : 'Lv ' + sp.unlock}</span>`}`);
+      s.prepend(spellIcon(sp)); s.title = `${sp.name} — ${sp.title}${sp.ult ? ' (ULTIMATE)' : ''}\n${sp.desc}\n${sp.mana} MP · ${sp.castTime}s cast · ${sp.cooldown}s cooldown${sp.incantation ? `\n“${sp.incantation}”` : ''}`;
+      s.onclick = () => known && g.cast(sp.id);
+      this.skillsEl.appendChild(s);
+      this.skillEls.set(sp.id, { root: s, cd: s.querySelector('.cd')!, sp, rank, known });
+    }
+    const dg = el('div', 'skill mini', `<span class="key">${keyName('dodge')}</span><span class="nm">DODGE</span>`); dg.onclick = () => g.action('dodge');
+    const pr = el('div', 'skill mini', `<span class="key">${keyName('parry')}</span><span class="nm">PARRY</span>`); pr.onclick = () => g.action('parry');
+    this.skillsEl.appendChild(dg); this.skillsEl.appendChild(pr);
+  }
+  setProgress(p: ProgressView) {
+    const changed = !this.progress || this.progress.adv !== p.adv || JSON.stringify(this.progress.ranks) !== JSON.stringify(p.ranks);
+    this.progress = p;
+    if (changed) this.buildSkills();
+    const dot = document.querySelector('.hero-btn .dot') as HTMLElement | null;
+    if (dot) dot.style.display = p.statPoints > 0 || p.skillPoints > 0 || (this.level >= 20 && !p.adv) ? '' : 'none';
+  }
 
   constructor(public g: GameClient, public char: CharacterSummary) {
     this.root = el('div'); this.root.id = 'hud';
@@ -63,18 +109,12 @@ export class Hud {
     this.mmLabel = el('div', 'mmlabel'); this.root.appendChild(this.mmLabel);
     this.questsEl = el('div', 'quests panel', '<h3>Quests</h3><div class="ql"></div>'); this.root.appendChild(this.questsEl);
     this.targetEl = el('div', 'target panel hidden', '<div class="nm"></div><div class="bar2 hp"><i class="v"></i><b></b></div>'); this.root.appendChild(this.targetEl);
-    // skills
-    const skills = el('div', 'skills');
-    const atk = el('div', 'skill attack', '<span class="key">F</span><div class="cd"></div><span class="nm">ATTACK</span>');
-    atk.prepend(spellIcon('attack')); atk.onclick = () => g.action('attack'); skills.appendChild(atk);
-    for (const sp of SPELLS) {
-      const s = el('div', 'skill', `<span class="key">${sp.key}</span><div class="cd"></div><span class="nm">${sp.name}</span>`);
-      s.prepend(spellIcon(sp)); s.title = `${sp.name} — ${sp.title}\n${sp.mana} MP · ${sp.castTime}s cast · ${sp.cooldown}s cooldown\n“${sp.incantation}”`;
-      s.onclick = () => g.cast(sp.id);
-      skills.appendChild(s);
-      this.skillEls.set(sp.id, { root: s, cd: s.querySelector('.cd')! });
-    }
-    this.root.appendChild(skills);
+    // skills (built per class; rebuilt when level / advanced class / ranks change)
+    this.skillsEl = el('div', 'skills');
+    this.root.appendChild(this.skillsEl);
+    this.buildSkills();
+    this.comboEl = el('div', 'combo hidden', '<b>0</b><span>COMBO</span>'); this.root.appendChild(this.comboEl);
+    this.statusEl = el('div', 'statuses'); unit.appendChild(this.statusEl);
     this.castEl = el('div', 'castbar hidden', '<div class="chant"></div><div class="track"><i></i></div>');
     this.chantEl = this.castEl.querySelector('.chant')!; this.castFill = this.castEl.querySelector('i')!;
     this.root.appendChild(this.castEl);
@@ -94,7 +134,8 @@ export class Hud {
     const mb = el('button', 'menu-btn', '☰'); mb.onclick = () => this.toggleMenu(); this.root.appendChild(mb);
     const ib = el('button', 'inv-btn', '🎒'); ib.title = 'Inventory (I)'; ib.onclick = () => this.g.openInventory(); this.root.appendChild(ib);
     const ab = el('button', 'inv-btn ar', '⚔'); ab.title = 'Legendary armory (K)'; ab.onclick = () => this.g.action('armory'); this.root.appendChild(ab);
-    this.chat('System', `Welcome, ${char.name}. WASD to move · mouse to look · 1/2/3 spells · F attack · E talk · Tab target · Esc menu.`, 'system');
+    const hb = el('button', 'inv-btn hero-btn', '✦<i class="dot" style="display:none"></i>'); hb.title = 'Hero: stats, skills, titles (P)'; hb.onclick = () => this.g.action('hero'); this.root.appendChild(hb);
+    this.chat('System', `Welcome, ${char.name}. WASD move · mouse look · 1–4 skills · R ultimate · F attack (chain for combos) · Q dodge · V parry · P hero · E talk · Esc menu.`, 'system');
     if (g.net.mode === 'offline') this.chat('System', 'Offline world: the same server code runs in your browser, with AI adventurers for company.', 'system');
   }
 
@@ -111,6 +152,17 @@ export class Hud {
     this.mpBar.style.width = (s.mp / s.mmp) * 100 + '%'; this.mpTxt.textContent = `${s.mp} / ${s.mmp}`;
     this.xpBar.style.width = (s.xp / s.xpNext) * 100 + '%';
     this.lvl.textContent = String(s.level);
+    if (s.level !== this.level) { this.level = s.level; this.buildSkills(); }
+    const flags = (s.sf ?? '').split(',').filter(Boolean);
+    const ICON: Record<string, string> = { stun: '💫', root: '🌿', slow: '🐌', mark: '🎯', soak: '💧', burn: '🔥', chill: '❄', dot: '☠', shield: '🛡', buff: '⬆', weak: '⬇' };
+    const html = flags.map((f) => `<span title="${f}">${ICON[f] ?? '•'}</span>`).join('') + (s.sh ? `<span class="sh">${s.sh}</span>` : '');
+    if (this.statusEl.innerHTML !== html) this.statusEl.innerHTML = html;
+    const c = s.combo ?? 0;
+    if (c !== this.comboShown) {
+      this.comboShown = c;
+      this.comboEl.classList.toggle('hidden', c < 2);
+      if (c >= 2) { (this.comboEl.querySelector('b') as HTMLElement).textContent = String(c); this.comboEl.classList.remove('pop'); void this.comboEl.offsetWidth; this.comboEl.classList.add('pop'); }
+    }
   }
 
   chat(from: string, text: string, ch: string) {
@@ -166,7 +218,7 @@ export class Hud {
 
   makePlate(e: NetEntity): HTMLElement {
     const npc = e.t === 'n' ? NPCS.find((n) => n.key === e.k) : undefined;
-    const p = el('div', 'nameplate ' + e.t, `${npc?.important ? '<div class="bang">!</div>' : ''}<div class="n">${esc(e.n ?? '')}${e.t === 'm' ? ` <small>Lv ${e.lv}</small>` : ''}</div><div class="t">${npc ? esc(npc.title) : ''}</div>${e.t === 'm' || e.t === 'p' || e.t === 'b' ? '<div class="hb"><i></i></div>' : ''}`);
+    const p = el('div', 'nameplate ' + e.t + (e.bs ? ' boss' : ''), `${npc?.important ? '<div class="bang">!</div>' : ''}<div class="n">${e.bs ? '☠ ' : ''}${esc(e.n ?? '')}${e.t === 'm' ? ` <small>Lv ${e.lv}</small>` : ''}</div><div class="t">${npc ? esc(npc.title) : e.ti ? '« ' + esc(e.ti) + ' »' : ''}</div>${e.t === 'm' || e.t === 'p' || e.t === 'b' || e.t === 's' ? '<div class="hb"><i></i></div>' : ''}<div class="sf"></div>`);
     this.root.appendChild(p);
     return p;
   }
@@ -176,6 +228,17 @@ export class Hud {
     if (v.z > 1) return;
     const d = el('div', `dmg ${crit ? 'crit' : ''} ${weak ? 'weak' : ''} ${me ? 'me' : ''} ${heal ? 'heal' : ''}`, (heal ? '+' : '') + amount + (crit ? '!' : ''));
     d.style.left = (v.x * 0.5 + 0.5) * innerWidth + (Math.random() - 0.5) * 30 + 'px';
+    d.style.top = (-v.y * 0.5 + 0.5) * innerHeight + 'px';
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 1150);
+  }
+
+  floatWord(at: THREE.Vector3, text: string, color: number, big = false) {
+    const v = at.clone().project(this.g.engine.camera);
+    if (v.z > 1 || !text) return;
+    const d = el('div', 'fword' + (big ? ' big' : ''), esc(text));
+    d.style.color = '#' + color.toString(16).padStart(6, '0');
+    d.style.left = (v.x * 0.5 + 0.5) * innerWidth + 'px';
     d.style.top = (-v.y * 0.5 + 0.5) * innerHeight + 'px';
     document.body.appendChild(d);
     setTimeout(() => d.remove(), 1150);
@@ -218,9 +281,14 @@ export class Hud {
     this.chat(name, text, 'npc');
   }
 
-  showDeath(by: string) {
-    this.deathEl = el('div', 'death', `<h1>YOU HAVE FALLEN</h1><p>Slain by ${esc(by)}. The Tower does not forget — but it forgives.</p><button class="btn" style="margin-top:24px">Rise at the Gate of Dawn</button>`);
-    this.deathEl.querySelector('button')!.onclick = () => this.g.net.send({ type: 'respawn' });
+  showDeath(by: string, info: { xpLost?: number; goldLost?: number; at?: string; wait?: number } = {}) {
+    const wait = info.wait ?? 0;
+    this.deathEl = el('div', 'death', `<h1>YOU HAVE FALLEN</h1><p>Slain by ${esc(by)}. The Tower does not forget — but it forgives.</p>
+      <div class="pen">${info.xpLost ? `<span>−${info.xpLost} XP</span>` : ''}${info.goldLost ? `<span>−${info.goldLost} gold</span>` : ''}<span>Soul-Weary for 60 s</span></div>
+      <button class="btn" style="margin-top:24px" ${wait ? 'disabled' : ''}>Rise at ${esc(info.at ?? 'the shrine')}${wait ? ` (${wait})` : ''}</button>`);
+    const b = this.deathEl.querySelector('button')! as HTMLButtonElement;
+    b.onclick = () => this.g.net.send({ type: 'respawn' });
+    if (wait) { let t = wait; const iv = setInterval(() => { t--; if (t <= 0) { clearInterval(iv); b.disabled = false; b.textContent = `Rise at ${info.at ?? 'the shrine'}`; } else b.textContent = `Rise at ${info.at ?? 'the shrine'} (${t})`; }, 1000); }
     this.root.appendChild(this.deathEl);
     document.exitPointerLock?.();
   }
@@ -294,14 +362,14 @@ export class Hud {
     this.fpsEl.textContent = `${Math.round(e.fps)} FPS · ${e.quality.toUpperCase()}`;
     // cooldowns
     const st = this.g.serverNow();
-    for (const sp of SPELLS) {
-      const s = this.skillEls.get(sp.id)!;
+    for (const s of this.skillEls.values()) {
+      const sp = s.sp, rs = rankScale(sp, s.rank);
       const ready = this.g.self.cds[sp.id] ?? 0;
       const left = ready - st;
-      const total = sp.cooldown + sp.castTime;
-      s.cd.style.setProperty('--p', left > 0 ? (left / total) * 100 + '%' : '0%');
+      const total = rs.cooldown + sp.castTime;
+      s.cd.style.setProperty('--p', left > 0 ? Math.min(100, (left / total) * 100) + '%' : '0%');
       s.cd.textContent = left > 0.05 ? (left > 3 ? Math.ceil(left) : left.toFixed(1)) + '' : '';
-      s.root.classList.toggle('nomana', this.g.self.mp < sp.mana);
+      s.root.classList.toggle('nomana', s.known && this.g.self.mp < rs.mana);
     }
     // target frame
     const t = this.g.targetId ? this.g.remotes.get(this.g.targetId) : undefined;
@@ -326,6 +394,9 @@ export class Hud {
       r.plate.style.opacity = String(Math.min(1, (1 - d / 45) * 2));
       const hb = r.plate.querySelector('.hb i') as HTMLElement | null;
       if (hb) hb.style.width = Math.max(0, (r.ent.hp / r.ent.mhp) * 100) + '%';
+      const sfe = r.plate.querySelector('.sf') as HTMLElement | null;
+      const sfv = r.ent.sf ?? '';
+      if (sfe && sfe.dataset.v !== sfv) { sfe.dataset.v = sfv; sfe.textContent = sfv.split(',').filter(Boolean).map((f) => ({ stun: '💫', root: '🌿', slow: '🐌', mark: '🎯', soak: '💧', burn: '🔥', chill: '❄', dot: '☠', shield: '🛡', buff: '⬆', weak: '⬇' } as Record<string, string>)[f] ?? '').join(''); }
       r.plate.style.outline = r.id === this.g.targetId ? '1px solid rgba(255,90,79,.6)' : '';
     }
     // zone title on entering a new area

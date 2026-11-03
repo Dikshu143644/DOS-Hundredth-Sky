@@ -76,7 +76,7 @@ export class Input {
     const end = () => { id = null; this.stick.x = this.stick.y = 0; knob.style.transform = ''; };
     stick.addEventListener('touchend', end); stick.addEventListener('touchcancel', end);
     const b = document.createElement('div'); b.className = 'tbtns';
-    for (const [a, label] of [['spell1', 'IGNIS'], ['spell2', 'FULGUR'], ['spell3', 'LUX'], ['attack', 'ATK'], ['jump', 'JUMP'], ['interact', 'TALK']]) {
+    for (const [a, label] of [['spell1', '1'], ['spell2', '2'], ['spell3', '3'], ['spell4', '4'], ['ult', 'ULT'], ['attack', 'ATK'], ['dodge', 'ROLL'], ['parry', 'PARRY'], ['jump', 'JUMP'], ['interact', 'TALK']]) {
       const bt = document.createElement('button'); bt.textContent = label;
       bt.addEventListener('touchstart', (e) => { e.preventDefault(); if (a === 'jump') this.touchJump = true; else onBtn(a); });
       b.appendChild(bt);

@@ -21,36 +21,18 @@ export const CLASSES: ClassDef[] = [
 ];
 export const classById = (id: string) => CLASSES.find((c) => c.id === id) ?? CLASSES[1];
 
-export interface SpellDef {
-  id: string; key: number; name: string; title: string; element: Element;
-  incantation: string; castTime: number; cooldown: number; mana: number;
-  range: number; radius: number; power: number; kind: 'projectile' | 'strike' | 'nova';
-  color: number; light: number;
-}
-
-export const SPELLS: SpellDef[] = [
-  {
-    id: 'ignis', key: 1, name: 'IGNIS', title: 'Apocalyptic Flame', element: 'fire',
-    incantation: 'From the ashes of the ancient flame, awaken and consume all that stands before me.',
-    castTime: 1.6, cooldown: 6, mana: 28, range: 38, radius: 5.5, power: 2.6, kind: 'projectile', color: 0xff6a1f, light: 9,
-  },
-  {
-    id: 'fulgur', key: 2, name: 'FULGUR', title: 'Spear of the Ninth Storm', element: 'lightning',
-    incantation: 'Heaven, split open. Let the ninth storm descend as a spear and judge my enemy.',
-    castTime: 0.9, cooldown: 4, mana: 18, range: 30, radius: 2.2, power: 1.9, kind: 'strike', color: 0x8fd4ff, light: 14,
-  },
-  {
-    id: 'lux', key: 3, name: 'LUX', title: 'Sanctuary of the First Dawn', element: 'light',
-    incantation: 'Light that was before the Tower, bloom within me. Mend the faithful, blind the wicked.',
-    castTime: 1.2, cooldown: 12, mana: 30, range: 0, radius: 8, power: 1.2, kind: 'nova', color: 0xffe9a8, light: 7,
-  },
-];
-export const spellById = (id: string) => SPELLS.find((s) => s.id === id);
+import { SKILLS, skillById, SkillDef, ADVANCED, Attr } from './skills';
+export type SpellDef = SkillDef;
+/** All castable skills (kept under the old name: every class skill is a "spell" to the netcode). */
+export const SPELLS: SpellDef[] = SKILLS;
+export const spellById = (id: string) => skillById(id);
 
 export const BASIC_ATTACK = { range: 2.8, cooldown: 0.85, arc: Math.PI * 0.6, power: 1.0, rangedRange: 26 };
 
-export type MonsterKind = 'minion' | 'warrior' | 'magus';
-export interface MonsterDef { kind: MonsterKind; name: string; model: string; hp: number; atk: number; def: number; xp: number; speed: number; aggro: number; attackRange: number; attackCd: number; ranged: boolean; level: number; weakTo: Element }
+export type MonsterKind = string;
+export interface MonsterDef { kind: MonsterKind; name: string; model: string; hp: number; atk: number; def: number; xp: number; speed: number; aggro: number; attackRange: number; attackCd: number; ranged: boolean; level: number; weakTo: Element;
+  /** visual: tint multiplies the model's colours, scale its size */ tint?: number; scale?: number; boss?: boolean; region?: string; element?: Element;
+  /** boss specials: slam (nova around self), volley (ranged burst), summon (adds), enrage (below 30 %) */ specials?: ('slam' | 'volley' | 'summon' | 'enrage' | 'charge' | 'breath')[]; adds?: MonsterKind; gold?: number; faction?: string }
 export const MONSTERS: Record<MonsterKind, MonsterDef> = {
   minion: { kind: 'minion', name: 'Hollow Skeleton', model: 'Skeleton_Minion', hp: 70, atk: 9, def: 3, xp: 28, speed: 2.6, aggro: 15, attackRange: 2.1, attackCd: 1.6, ranged: false, level: 2, weakTo: 'light' },
   warrior: { kind: 'warrior', name: 'Grave Knight', model: 'Skeleton_Warrior', hp: 150, atk: 15, def: 7, xp: 70, speed: 2.3, aggro: 17, attackRange: 2.4, attackCd: 2.0, ranged: false, level: 4, weakTo: 'fire' },
@@ -62,16 +44,21 @@ export function xpToNext(level: number): number {
   return Math.round(80 * Math.pow(level, 1.55) + 20 * level);
 }
 
-export interface Stats { maxHp: number; maxMp: number; atk: number; mag: number; def: number }
-export function statsFor(cls: ClassId, level: number): Stats {
+export interface Stats { maxHp: number; maxMp: number; atk: number; mag: number; def: number; crit: number; spd: number; mpRegen: number }
+export function statsFor(cls: ClassId, level: number, attrs: Partial<Record<Attr, number>> = {}, adv?: string | null): Stats {
   const c = classById(cls);
   const g = level - 1;
+  const A = (k: Attr) => Math.max(0, Math.floor(attrs[k] ?? 0));
+  const ab = adv ? ADVANCED[cls]?.find((x) => x.id === adv)?.bonus ?? {} : {};
   return {
-    maxHp: Math.round(c.hp * (1 + 0.12 * g)),
-    maxMp: Math.round(c.mp * (1 + 0.08 * g)),
-    atk: Math.round(c.atk * (1 + 0.1 * g)),
-    mag: Math.round(c.mag * (1 + 0.1 * g)),
-    def: Math.round(c.def * (1 + 0.08 * g)),
+    maxHp: Math.round((c.hp * (1 + 0.12 * g) + A('vit') * 14) * (1 + (ab.hp ?? 0))),
+    maxMp: Math.round((c.mp * (1 + 0.08 * g) + A('spi') * 9) * (1 + (ab.mp ?? 0))),
+    atk: Math.round((c.atk * (1 + 0.1 * g) + A('str') * 2) * (1 + (ab.atk ?? 0))),
+    mag: Math.round((c.mag * (1 + 0.1 * g) + A('int') * 2) * (1 + (ab.mag ?? 0))),
+    def: Math.round((c.def * (1 + 0.08 * g) + A('vit') * 0.6) * (1 + (ab.def ?? 0))),
+    crit: Math.min(0.6, 0.08 + A('agi') * 0.006 + (ab.crit ?? 0)),
+    spd: Math.min(1.25, 1 + A('agi') * 0.004),
+    mpRegen: 1 + A('spi') * 0.04,
   };
 }
 
@@ -110,6 +97,6 @@ export const LOOT_TABLE: Record<MonsterKind, { item: string; rarity: 'Common' | 
 };
 export function rollLoot(kind: MonsterKind, rolls: number[]): { item: string; rarity: string }[] {
   const out: { item: string; rarity: string }[] = [];
-  LOOT_TABLE[kind].forEach((e, i) => { if ((rolls[i] ?? 1) < e.chance) out.push({ item: e.item, rarity: e.rarity }); });
+  (LOOT_TABLE[kind] ?? []).forEach((e, i) => { if ((rolls[i] ?? 1) < e.chance) out.push({ item: e.item, rarity: e.rarity }); });
   return out;
 }

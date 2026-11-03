@@ -41,11 +41,11 @@ export function tex(path: string, opts: { srgb?: boolean; repeat?: number; aniso
   return t;
 }
 
-export type AnimName = 'idle' | 'walk' | 'run' | 'sprint' | 'jump' | 'fall' | 'land' | 'attack' | 'attack2' | 'shoot' | 'cast' | 'castshoot' | 'hit' | 'death' | 'talk' | 'sit' | 'channel' | 'work' | 'interact' | 'cheer' | 'combat' | 'taunt' | 'spawn' | 'swim' | 'walkback';
+export type AnimName = 'idle' | 'walk' | 'run' | 'sprint' | 'jump' | 'fall' | 'land' | 'attack' | 'attack2' | 'shoot' | 'cast' | 'castshoot' | 'hit' | 'death' | 'talk' | 'sit' | 'channel' | 'work' | 'interact' | 'cheer' | 'combat' | 'taunt' | 'spawn' | 'swim' | 'walkback' | 'roll' | 'parry';
 export const HERO_CLIPS: Record<AnimName, string> = {
   idle: 'Idle', walk: 'Walking_A', run: 'Running_A', sprint: 'Running_A', jump: 'Jump_Start', fall: 'Jump_Idle', land: 'Jump_Land', attack: '1H_Melee_Attack_Slice_Diagonal', attack2: '1H_Melee_Attack_Chop',
   shoot: '2H_Ranged_Shoot', cast: 'Spellcasting', castshoot: 'Spellcast_Shoot', hit: 'Hit_A', death: 'Death_A', talk: 'Interact', sit: 'Sit_Chair_Idle', channel: 'Spellcasting', work: '1H_Melee_Attack_Chop',
-  interact: 'Interact', cheer: 'Cheer', combat: 'Idle', taunt: 'Cheer', spawn: 'Idle', swim: 'Jump_Idle', walkback: 'Walking_Backwards',
+  interact: 'Interact', cheer: 'Cheer', combat: 'Idle', taunt: 'Cheer', spawn: 'Idle', swim: 'Jump_Idle', walkback: 'Walking_Backwards', roll: 'Dodge_Forward', parry: 'Block',
 };
 export const SKEL_CLIPS: Partial<Record<AnimName, string>> = {
   idle: 'Idle', walk: 'Walking_D_Skeletons', run: 'Running_C', attack: '1H_Melee_Attack_Chop', castshoot: 'Spellcast_Shoot', hit: 'Hit_A', death: 'Death_A', combat: 'Idle_Combat', taunt: 'Taunt', spawn: 'Spawn_Ground_Skeletons', cast: 'Spellcasting',

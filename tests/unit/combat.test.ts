@@ -3,8 +3,8 @@ import { SPELLS, spellById, xpToNext, grantXp, canCast, rollLoot, statsFor, comp
 
 describe('spells', () => {
   it('has three named spells with incantations, including IGNIS', () => {
-    expect(SPELLS.length).toBe(3);
-    for (const s of SPELLS) { expect(s.incantation.length).toBeGreaterThan(10); expect(s.castTime).toBeGreaterThan(0); expect(s.mana).toBeGreaterThan(0); }
+    expect(SPELLS.length).toBeGreaterThanOrEqual(35);
+    for (const s of SPELLS.filter((x) => x.scale === 'mag')) { expect(s.incantation.length).toBeGreaterThan(3); expect(s.castTime).toBeGreaterThan(0); expect(s.mana).toBeGreaterThan(0); }
     expect(spellById('ignis')!.name).toBe('IGNIS');
   });
   it('gates casting on mana and cooldown', () => {

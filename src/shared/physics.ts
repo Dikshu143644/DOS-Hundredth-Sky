@@ -31,7 +31,10 @@ export interface CharState {
   grounded: boolean;
   swimming: boolean;
   coyote: number;
+  /** dodge roll: time left, cooldown left, direction (deterministic on both ends) */
+  dg?: number; dc?: number; ddx?: number; ddz?: number;
 }
+export const DODGE = { DUR: 0.34, CD: 0.95, SPEED: 11.5, IFRAMES: 0.3 };
 
 export interface MoveInput {
   seq: number;
@@ -42,10 +45,11 @@ export interface MoveInput {
   sprint: boolean;
   walk: boolean;
   dt: number;
+  dodge?: boolean;
 }
 
 export function newCharState(x: number, z: number, yaw = 0): CharState {
-  return { x, y: heightAt(x, z), z, vx: 0, vy: 0, vz: 0, yaw, grounded: true, swimming: false, coyote: 0 };
+  return { x, y: heightAt(x, z), z, vx: 0, vy: 0, vz: 0, yaw, grounded: true, swimming: false, coyote: 0, dg: 0, dc: 0, ddx: 0, ddz: 0 };
 }
 
 // ------------------------------------------------------------------ spatial hash
@@ -187,13 +191,23 @@ export function stepCharacter(s: CharState, inp: MoveInput, speedMul = 1): void 
   // forward = -Z rotated by yaw ; right = +X rotated
   const fx = -sy, fz = -cy, rx = cy, rz = -sy;
   const speed = (inp.walk ? PHYS.WALK : inp.sprint ? PHYS.SPRINT : PHYS.RUN) * speedMul * (s.swimming ? 0.55 : 1);
-  const tvx = (fx * mz + rx * mx) * speed, tvz = (fz * mz + rz * mx) * speed;
+  let tvx = (fx * mz + rx * mx) * speed, tvz = (fz * mz + rz * mx) * speed;
+  // dodge roll: a short burst in the input direction (backwards when standing still)
+  s.dc = Math.max(0, (s.dc ?? 0) - dt);
+  if (inp.dodge && (s.dc ?? 0) <= 0 && (s.dg ?? 0) <= 0 && s.grounded && !s.swimming && speedMul > 0) {
+    let dx = fx * mz + rx * mx, dz = fz * mz + rz * mx;
+    const l = Math.hypot(dx, dz);
+    if (l < 0.1) { dx = Math.sin(s.yaw); dz = Math.cos(s.yaw); } else { dx /= l; dz /= l; }
+    s.dg = DODGE.DUR; s.dc = DODGE.CD + DODGE.DUR; s.ddx = dx; s.ddz = dz;
+  }
+  const dodging = (s.dg ?? 0) > 0;
+  if (dodging) { s.dg = Math.max(0, s.dg! - dt); tvx = s.ddx! * DODGE.SPEED; tvz = s.ddz! * DODGE.SPEED; }
   const control = s.grounded || s.swimming ? 1 : PHYS.AIR_CONTROL;
-  const a = PHYS.ACCEL * control * dt;
+  const a = (dodging ? 400 : PHYS.ACCEL) * control * dt;
   const dvx = tvx - s.vx, dvz = tvz - s.vz;
   const dl = Math.hypot(dvx, dvz);
   if (dl <= a) { s.vx = tvx; s.vz = tvz; } else { s.vx += (dvx / dl) * a; s.vz += (dvz / dl) * a; }
-  if (ml > 0.05) s.yaw = Math.atan2(-(tvx), -(tvz));
+  if (ml > 0.05 && !dodging) s.yaw = Math.atan2(-(tvx), -(tvz));
 
   // jump / gravity / swimming
   s.coyote = s.grounded ? 0.12 : Math.max(0, s.coyote - dt);
@@ -204,7 +218,7 @@ export function stepCharacter(s: CharState, inp: MoveInput, speedMul = 1): void 
     s.vy += (targetY - s.y) * 8 * dt - s.vy * 4 * dt;
     if (inp.jump && s.y > targetY - 0.2) s.vy = 3.5;
   } else {
-    if (inp.jump && (s.grounded || s.coyote > 0)) { s.vy = PHYS.JUMP_V; s.grounded = false; s.coyote = 0; }
+    if (inp.jump && !dodging && (s.grounded || s.coyote > 0)) { s.vy = PHYS.JUMP_V; s.grounded = false; s.coyote = 0; }
     s.vy -= PHYS.GRAVITY * dt;
     if (s.vy < -40) s.vy = -40;
   }
@@ -326,4 +340,24 @@ export function hasLineOfSight(ax: number, ay: number, az: number, bx: number, b
   const d = Math.hypot(dx, dy, dz);
   if (d < 0.01) return true;
   return raycastWorld(ax, ay, az, dx / d, dy / d, dz / d, d, new Set(['bound'])) >= d - 0.05;
+}
+
+/** Move a character along the ground by (dx, dz) metres with full collision (walls stop it):
+ *  used by dash / leap / blink skills on the server, and by the client to mirror them. */
+export function sweepDash(s: CharState, dx: number, dz: number): void {
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-3) return;
+  const n = Math.ceil(dist / 0.2);
+  const sx = dx / n, sz = dz / n;
+  for (let i = 0; i < n; i++) {
+    const px = s.x, pz = s.z;
+    s.x += sx; s.z += sz;
+    resolveXZ(s);
+    resolveSlope(s, px, pz);
+    const g = groundAt(s.x, s.z, s.y + 1.2);
+    if (g - s.y > 1.2) { s.x = px; s.z = pz; break; } // a cliff or wall: stop here
+    s.y = Math.max(g, heightAt(s.x, s.z));
+    if (Math.hypot(s.x - px, s.z - pz) < 0.02) break; // blocked
+  }
+  s.vx = 0; s.vz = 0; s.vy = 0; s.grounded = true;
 }

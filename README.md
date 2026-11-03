@@ -27,6 +27,10 @@
 
 ---
 
+## Phase 4: the whole game
+
+Phase 4 builds every system from the plan, milestone by milestone. See **[docs/GAME_SYSTEMS.md](docs/GAME_SYSTEMS.md)** for what each milestone added.
+
 ## Features
 
 **Cinematic entry, built like a real client**

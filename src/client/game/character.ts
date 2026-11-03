@@ -5,13 +5,14 @@ import { makeCloak, CloakFX } from '../engine/cloak';
 import { buildWeapon, WeaponFX, WeaponModel } from '../engine/weapons';
 import { ITEMS } from '../../shared/items';
 import { classById, MONSTERS, MonsterKind } from '../../shared/combat';
+import { SUMMONS } from '../../shared/skills';
 import { NPCS } from '../../server/core/npcdefs';
 import type { Appearance } from '../../shared/protocol';
 
 /** Cloak cloth per class (and the two named NPCs), warm and muted like the reference. */
 const CLOAK_COLORS: Record<string, number> = { warrior: 0x7a2e22, knight: 0x2c3e66, mage: 0x4a2f6e, archer: 0x3d5232, assassin: 0x2b2a2e, summoner: 0x55306a, healer: 0xe6dcc6, aldric: 0x2c3e66, lyra: 0xd6c4a0 };
 
-const ONE_SHOT = new Set<AnimName>(['attack', 'attack2', 'shoot', 'castshoot', 'hit', 'death', 'jump', 'land', 'spawn', 'taunt']);
+const ONE_SHOT = new Set<AnimName>(['attack', 'attack2', 'shoot', 'castshoot', 'hit', 'death', 'jump', 'land', 'spawn', 'taunt', 'roll', 'parry']);
 
 /** A rendered character: skinned model + animation state machine with cross-fades,
  *  speed-matched locomotion (feet don't skate), one-shots and footstep events. */
@@ -27,7 +28,7 @@ export class CharacterView {
   ready: Promise<void>;
   flash = 0;
 
-  constructor(public kind: 'p' | 'b' | 'm' | 'n', public key: string, ap?: Appearance) {
+  constructor(public kind: 'p' | 'b' | 'm' | 'n' | 's', public key: string, ap?: Appearance) {
     let model = 'Knight', hide: string[] = [], skeleton = false, tint: number | undefined, accent: number | undefined, headgear = true, cape = true, scale = 1;
     if (kind === 'p' || kind === 'b') {
       const c = classById(key);
@@ -37,7 +38,10 @@ export class CharacterView {
       if (key === 'healer') tint = tint ?? 0xfff6e0;
     } else if (kind === 'm') {
       const m = MONSTERS[key as MonsterKind] ?? MONSTERS.minion;
-      model = m.model; skeleton = true; scale = key === 'warrior' ? 1.12 : 1;
+      model = m.model; skeleton = true; scale = m.scale ?? (key === 'warrior' ? 1.12 : 1); tint = m.tint;
+    } else if (kind === 's') {
+      const s = SUMMONS[key] ?? SUMMONS.wolf;
+      model = s.model; skeleton = true; scale = s.scale; tint = s.tint; this.spirit = s.tint;
     } else {
       const d = NPCS.find((n) => n.key === key);
       model = d?.model ?? 'Knight'; tint = d?.tint; scale = d?.important ? 1.02 : 0.98;
@@ -64,12 +68,16 @@ export class CharacterView {
       this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
         this.rig = rig;
         this.root.add(rig.root);
+        if (this.spirit !== undefined) { // summoned spirits: glowing, half-transparent
+          rig.root.traverse((o) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && (o as THREE.Mesh).isMesh) { const c = mm.clone(); c.transparent = true; c.opacity = 0.72; c.emissive = new THREE.Color(this.spirit!); c.emissiveIntensity = 0.9; c.depthWrite = false; (o as THREE.Mesh).material = c; } });
+        }
         this.play('idle', 0);
       });
     }
   }
 
   hero: HeroRig | null = null;
+  spirit: number | undefined = undefined;
   cloak: CloakFX | null = null;
   weapon: WeaponFX | null = null;
   weaponId: string | null = null;
@@ -106,6 +114,7 @@ export class CharacterView {
     if (!a) return;
     if (ONE_SHOT.has(name)) {
       a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true;
+      if (name === 'roll') a.timeScale = a.getClip().duration / 0.55; else if (name === 'parry') a.timeScale = a.getClip().duration / 0.45; else if (a.timeScale > 1.5 && name !== 'attack' && name !== 'attack2') a.timeScale = 1;
       this.oneShotUntil = now + a.getClip().duration / Math.max(0.1, a.timeScale) - 0.05;
       if (name === 'death') this.oneShotUntil = Infinity;
     } else { a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; }
