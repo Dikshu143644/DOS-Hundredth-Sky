@@ -49,37 +49,48 @@ export const LORE_TIPS = [
   'Rain hides footsteps — yours and theirs.',
 ];
 
-export function loginScreen(o: { mode: string; server: string; llm: boolean; onSubmit: (mode: 'login' | 'register', u: string, p: string) => void; onOffline?: () => void }) {
+export function loginScreen(o: { mode: string; server: string; llm: boolean; ping?: () => number | null; vr?: boolean; onSubmit: (mode: 'login' | 'register', u: string, p: string) => void; onOffline?: () => void }) {
+  const icoMail = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h18v11H3z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 7l8.5 6.5L20.5 7" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+  const icoLock = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
   const d = show(`
-    <div class="brand"><div class="t1">DOS presents</div><div class="t2">THE HUNDREDTH<br>SKY</div><div class="t3">Beneath a tower of a hundred floors, every story is waiting to be found.</div></div>
-    <div class="panel"><span class="crn tr"></span><span class="crn bl"></span>
-      <h2>Enter the World</h2><div class="rule"></div>
-      <div class="tabs"><button data-m="login" class="on">Log in</button><button data-m="register">Create account</button></div>
-      <form autocomplete="on">
-        <div class="field"><label>Account name</label><input name="username" autocomplete="username" maxlength="20" spellcheck="false" /></div>
-        <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" maxlength="128" /></div>
-        <div class="err"></div>
-        <button class="btn" type="submit" style="width:100%">Log in</button>
+    <div class="sk-brand"><div class="sk-dos">DOS</div><div class="sk-sub">THE HUNDREDTH SKY</div><div class="sk-line"></div></div>
+    <div class="sk-glass panel">
+      <div class="sk-enter">ENTER THE WORLD</div>
+      <form autocomplete="on" novalidate>
+        <label class="sk-field"><span class="sk-ico">${icoMail}</span><input name="username" type="text" inputmode="email" autocomplete="username" maxlength="64" spellcheck="false" placeholder="Email" aria-label="Email" /></label>
+        <label class="sk-field"><span class="sk-ico">${icoLock}</span><input name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Password" aria-label="Password" /></label>
+        <div class="err" role="alert"></div>
+        <button class="sk-btn" type="submit"><span>LOG IN</span></button>
       </form>
-      <div class="server-line"><span><span class="dot" style="color:${o.mode === 'online' ? '#43e08a' : '#ffb547'}"></span>${esc(o.server)}</span><span>${o.llm ? 'AI NPCs: live' : 'AI NPCs: fallback'}</span></div>
-      ${o.onOffline ? '<div style="text-align:center;margin-top:10px"><button class="btn ghost" data-off style="font-size:11px;min-height:34px;padding:6px 16px">Play offline instead</button></div>' : ''}
+      <div class="sk-links tabs"><button type="button" data-m="register">Create account</button><button type="button" data-forgot>Forgot password?</button></div>
+      <div class="sk-vr">${o.vr ? 'VR HEADSET DETECTED · PRESS ENTER VR TO CONTINUE IN VR' : 'BEST WITH HEADPHONES · PC, PHONE &amp; VR'}</div>
+      ${o.onOffline ? '<div class="sk-off"><button type="button" data-off>Play offline instead</button></div>' : ''}
     </div>
-    <div class="foot">DOS: THE HUNDREDTH SKY · VERTICAL SLICE 0.1 · © DOS STUDIO</div>`, 'login');
+    <div class="sk-foot-l">v0.2.0 · pre-alpha · ${o.llm ? 'AI NPCs live' : 'AI NPCs: fallback'}</div>
+    <div class="sk-foot-r"><span class="dot" style="color:${o.mode === 'online' ? '#43e08a' : '#ffb547'}"></span>World: ${esc(o.server)} · <span data-ping>— ms</span></div>`, 'login');
+  d.classList.add('sk-login');
   let mode: 'login' | 'register' = 'login';
-  const form = d.querySelector('form')!, err = d.querySelector('.err')!, btn = form.querySelector('button')!;
-  d.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
-    mode = (b as HTMLElement).dataset.m as 'login' | 'register';
-    d.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
-    btn.textContent = mode === 'login' ? 'Log in' : 'Create account';
+  const form = d.querySelector('form')!, err = d.querySelector('.err')!, btn = form.querySelector('button')! as HTMLButtonElement;
+  const toggle = d.querySelector('[data-m]') as HTMLButtonElement;
+  toggle.addEventListener('click', () => {
+    mode = mode === 'login' ? 'register' : 'login';
+    toggle.dataset.m = mode === 'login' ? 'register' : 'login';
+    toggle.textContent = mode === 'login' ? 'Create account' : 'I already have an account';
+    btn.firstElementChild!.textContent = mode === 'login' ? 'LOG IN' : 'CREATE ACCOUNT';
+    (d.querySelector('.sk-enter') as HTMLElement).textContent = mode === 'login' ? 'ENTER THE WORLD' : 'BEGIN YOUR CLIMB';
     (form.querySelector('[name=password]') as HTMLInputElement).autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-  }));
+    err.textContent = '';
+  });
+  d.querySelector('[data-forgot]')!.addEventListener('click', () => { err.textContent = 'Password reset by email arrives with account email verification (next phase).'; });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const u = (form.querySelector('[name=username]') as HTMLInputElement).value.trim(), p = (form.querySelector('[name=password]') as HTMLInputElement).value;
+    const u = (form.querySelector('[name=username]') as HTMLInputElement).value.trim().toLowerCase(), p = (form.querySelector('[name=password]') as HTMLInputElement).value;
     err.textContent = ''; btn.setAttribute('disabled', '');
     o.onSubmit(mode, u, p);
   });
   d.querySelector('[data-off]')?.addEventListener('click', () => o.onOffline?.());
+  const pingEl = d.querySelector('[data-ping]') as HTMLElement;
+  const iv = setInterval(() => { if (!d.isConnected) return clearInterval(iv); const p = o.ping?.(); pingEl.textContent = p == null ? (o.mode === 'online' ? '— ms' : 'offline') : `${Math.round(p)} ms`; }, 1000);
   return { el: d, error(msg: string) { err.textContent = msg; btn.removeAttribute('disabled'); } };
 }
 
@@ -120,7 +131,7 @@ const TINTS = [0xffffff, 0xffe2c8, 0xf3d0b0, 0xd8f0ff, 0xf0d8ff, 0xd6ffd8, 0xfff
 const ACCENTS = [0x3fd0ff, 0xff7a3f, 0x9b6bff, 0x43e08a, 0xff4f7a, 0xffd23f, 0xe8e8f0, 0x2a2a3a];
 export function createScreen(o: { onChange: (cls: ClassId, ap: Appearance) => void; onCreate: (name: string, cls: ClassId, ap: Appearance) => void; onBack: () => void }) {
   let cls: ClassId = 'mage';
-  const ap: Appearance = { tint: 0xffffff, accent: 0x3fd0ff, headgear: true, cape: true, scale: 1 };
+  const ap: Appearance = { tint: 0xffffff, accent: 0x3fd0ff, headgear: true, cape: true, scale: 1, body: 'm' };
   const d = show(`
     <div class="side panel"><span class="crn tr"></span><span class="crn bl"></span><h2>Choose your path</h2><div class="rule"></div>
       <div class="classgrid">${CLASSES.map((c) => `<button class="classbtn ${c.id === cls ? 'on' : ''}" data-c="${c.id}"><b>${c.name}</b><small>${c.role}</small></button>`).join('')}</div>
@@ -128,6 +139,7 @@ export function createScreen(o: { onChange: (cls: ClassId, ap: Appearance) => vo
     <div class="side panel"><span class="crn tr"></span><span class="crn bl"></span><h2>Appearance</h2><div class="rule"></div>
       <div class="field"><label>Outfit tone</label><div class="swatches" data-k="tint">${TINTS.map((t) => `<div class="sw ${t === ap.tint ? 'on' : ''}" data-v="${t}" style="background:#${t.toString(16).padStart(6, '0')}"></div>`).join('')}</div></div>
       <div class="field"><label>Cape & accent</label><div class="swatches" data-k="accent">${ACCENTS.map((t) => `<div class="sw ${t === ap.accent ? 'on' : ''}" data-v="${t}" style="background:#${t.toString(16).padStart(6, '0')}"></div>`).join('')}</div></div>
+      <div class="field"><label>Body</label><div class="seg" data-body><button type="button" data-b="m" class="on">Masculine</button><button type="button" data-b="f">Feminine</button></div></div>
       <div class="toggle"><span>Helmet / hat</span><input type="checkbox" data-t="headgear" checked></div>
       <div class="toggle"><span>Cape</span><input type="checkbox" data-t="cape" checked></div>
       <div class="field" style="margin-top:12px"><label>Height</label><input type="range" min="0.92" max="1.08" step="0.01" value="1" data-scale style="height:auto;padding:0;accent-color:var(--gold)"></div>
@@ -148,6 +160,7 @@ export function createScreen(o: { onChange: (cls: ClassId, ap: Appearance) => vo
     s.querySelectorAll('.sw').forEach((x) => x.classList.toggle('on', x === t)); upd();
   }));
   d.querySelectorAll('[data-t]').forEach((c) => c.addEventListener('change', () => { (ap as any)[(c as HTMLElement).dataset.t!] = (c as HTMLInputElement).checked; upd(); }));
+  d.querySelectorAll<HTMLElement>('[data-b]').forEach((b) => b.addEventListener('click', () => { ap.body = b.dataset.b as 'm' | 'f'; d.querySelectorAll('[data-b]').forEach((x) => x.classList.toggle('on', x === b)); upd(); }));
   d.querySelector('[data-scale]')!.addEventListener('input', (e) => { ap.scale = Number((e.target as HTMLInputElement).value); upd(); });
   const err = d.querySelector('.err')!;
   d.querySelector('[data-create]')!.addEventListener('click', () => {
