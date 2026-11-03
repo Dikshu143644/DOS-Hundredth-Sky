@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { buildZone, TREE_TYPES, heightAt } from '../../shared/world';
+import { buildZone, TREE_TYPES, heightAt, REGION } from '../../shared/world';
 import { loadGLTF, tex, texturesLoaded } from './assets';
 import { HMAP, Terrain } from './terrain';
 
-export const wind = { uTime: { value: 0 }, uWind: { value: 1 } };
+export const wind = { uTime: { value: 0 }, uWind: { value: 1 }, uLeaf: { value: new THREE.Color(1, 1, 1) } };
 
 function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
-    sh.uniforms.uTime = wind.uTime; sh.uniforms.uWind = wind.uWind;
+    sh.uniforms.uTime = wind.uTime; sh.uniforms.uWind = wind.uWind; sh.uniforms.uLeaf = wind.uLeaf;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind; varying vec3 vTreeVar;').replace('#include <begin_vertex>', `#include <begin_vertex>
       {
         vec3 ip = vec3(0.0);
@@ -26,12 +26,13 @@ function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
         transformed.z += cos(uTime*1.1 + ph) * ${strength.toFixed(3)} * h * h * 0.02 * uWind;
         ${leaves ? 'transformed += normal * sin(uTime*6.0 + position.x*3.0 + position.z*2.0 + ph) * 0.03 * uWind;' : ''}
       }`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTreeVar;').replace('#include <map_fragment>', `#include <map_fragment>
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTreeVar; uniform vec3 uLeaf;').replace('#include <map_fragment>', `#include <map_fragment>
       ${leaves && /Leaves/.test(mat.name) ? `{
         float hv = vTreeVar.x;
         vec3 tint = mix(vec3(0.78, 0.86, 0.62), vec3(1.08, 1.0, 0.72), hv);           // olive ↔ sun-gold greens
         diffuseColor.rgb *= tint * mix(0.62, 1.08, smoothstep(0.15, 0.95, vTreeVar.y)); // darker inside/under the crown
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.33))), 0.12); // less candy saturation
+        diffuseColor.rgb *= uLeaf; // region tint (snow-dusted, withered, …)
       }` : /Bark/.test(mat.name) ? 'diffuseColor.rgb *= mix(0.8, 1.05, vTreeVar.x) * vec3(0.92, 0.88, 0.84);' : ''}`);
   };
 }
@@ -100,6 +101,12 @@ export class Foliage {
   group = new THREE.Group();
 
   constructor(public scene: THREE.Scene) { scene.add(this.group); }
+  /** Phase 4: zones stream — drop this zone's instances (shared tree geometry stays cached). */
+  dispose() {
+    this.scene.remove(this.group);
+    for (const k of this.kinds) { ((k.far.material as THREE.MeshStandardMaterial).map as THREE.Texture | null)?.dispose(); (k.far.material as THREE.Material).dispose(); for (const n of k.near) n.dispose(); k.far.dispose(); }
+    if (this.grass) { this.scene.remove(this.grass); this.grass.geometry.dispose(); this.grassMat?.dispose(); this.grass.dispose(); }
+  }
 
   async build(renderer: THREE.WebGLRenderer, q: { grass: number; treeNear: number; treeFar: number; shadows: boolean }, terrain: Terrain, lowSpec: boolean) {
     const zone = buildZone();
@@ -117,6 +124,7 @@ export class Foliage {
       const size = box.getSize(new THREE.Vector3());
       const w = Math.max(size.x, size.z) * 1.05, h = size.y * 1.02;
       const imp = this.bakeImpostor(renderer, parts, box, w, h);
+      (imp as THREE.MeshStandardMaterial).color.multiply(new THREE.Color(REGION.leafTint ?? 0xffffff));
       const pg = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
       const far = new THREE.InstancedMesh(pg, imp, Math.max(1, list.length));
       far.count = 0; far.frustumCulled = false;
@@ -137,7 +145,9 @@ export class Foliage {
         this.group.add(im);
       }
     }
-    if (q.grass > 0) this.buildGrass(q.grass, terrain);
+    wind.uLeaf.value.set(REGION.leafTint ?? 0xffffff);
+    const gc = Math.round(q.grass * REGION.grass);
+    if (gc > 0) this.buildGrass(gc, terrain);
   }
 
   private bakeImpostor(renderer: THREE.WebGLRenderer, parts: Part[], box: THREE.Box3, w: number, h: number): THREE.Material {
@@ -213,7 +223,7 @@ export class Foliage {
     const off = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) off.set([Math.random() * T, Math.random() * T, Math.random(), Math.random() * Math.PI * 2], i * 4);
     geo.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 4));
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.9 });
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.9, color: REGION.grassTint });
     const u = { uH: { value: terrain.heightTex }, uCam: { value: new THREE.Vector3() }, uT: { value: T }, uHalf: { value: HMAP.half }, uN: { value: HMAP.size } };
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, u, wind);

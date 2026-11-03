@@ -1,4 +1,4 @@
-import { heightAt, normalAt, buildZone, Collider, WATER_LEVEL } from './world';
+import { heightAt, normalAt, buildZone, Collider, WATER_LEVEL, ZONE } from './world';
 import { clamp } from './rng';
 
 /** Kinematic character physics shared by client prediction and the authoritative server.
@@ -54,7 +54,7 @@ export function newCharState(x: number, z: number, yaw = 0): CharState {
 
 // ------------------------------------------------------------------ spatial hash
 const CELL = 8;
-let grid: Map<number, Collider[]> | null = null;
+const grids = new Map<string, Map<number, Collider[]>>();
 function key(ix: number, iz: number) { return (ix + 4096) * 8192 + (iz + 4096); }
 function colliderExtent(c: Collider) {
   if (c.kind === 'cyl') return { x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r };
@@ -62,14 +62,17 @@ function colliderExtent(c: Collider) {
   const ex = c.hx * cs + c.hz * sn, ez = c.hx * sn + c.hz * cs;
   return { x0: c.x - ex, x1: c.x + ex, z0: c.z - ez, z1: c.z + ez };
 }
+/** One collision grid per zone (the active zone's, see world.setActiveZone). */
 export function getGrid(): Map<number, Collider[]> {
-  if (grid) return grid;
-  grid = new Map();
+  let g = grids.get(ZONE);
+  if (g) return g;
+  g = new Map();
+  grids.set(ZONE, g);
   for (const c of buildZone().colliders) addCollider(c);
-  return grid;
+  return g;
 }
 export function addCollider(c: Collider) {
-  const g = grid ?? getGrid();
+  const g = getGrid();
   const e = colliderExtent(c);
   for (let ix = Math.floor(e.x0 / CELL); ix <= Math.floor(e.x1 / CELL); ix++)
     for (let iz = Math.floor(e.z0 / CELL); iz <= Math.floor(e.z1 / CELL); iz++) {

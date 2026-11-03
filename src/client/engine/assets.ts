@@ -61,6 +61,42 @@ export async function preloadAnimations() {
 
 export interface CharacterRig { root: THREE.Object3D; mixer: THREE.AnimationMixer; actions: Map<string, THREE.AnimationAction>; clipsMap: Partial<Record<AnimName, string>>; materials: THREE.MeshStandardMaterial[] }
 
+const BEAST_MAP: [AnimName, RegExp][] = [
+  ['idle', /(^|\|)(Idle|Flying_Idle|\w+_Idle)$/], ['idle', /_Flying$/], ['walk', /(^|\|)Walk$|_Walk$/], ['walk', /Fast_Flying|_Flying$|Gallop/],
+  ['run', /(^|\|)Run$|Gallop|Fast_Flying|_Walk$|_Flying$/], ['attack', /(^|\|)Attack$|_Attack$|Punch|Bite_Front/], ['attack2', /Weapon$|Headbutt|Attack2$|Punch|Bite_Front|_Attack$/],
+  ['hit', /HitReact$|HitRecieve$|_Hit$/], ['death', /Death$/],
+];
+/** Phase 4 · M2: a Quaternius CC0 monster (its own clips), tinted and normalised to `height` metres. */
+export async function makeBeast(file: string, opts: { tint?: number; height?: number } = {}): Promise<CharacterRig & { height: number }> {
+  const g = await loadGLTF(`models/monsters/${file}.glb`);
+  const root = SkeletonUtils.clone(g.scene);
+  const materials: THREE.MeshStandardMaterial[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+    const mat = (m.material as THREE.MeshStandardMaterial).clone();
+    mat.roughness = 0.7; mat.metalness = 0.05;
+    if (opts.tint !== undefined && !/Eye/i.test(mat.name)) mat.color.multiply(new THREE.Color(opts.tint));
+    if (/Eye/i.test(mat.name)) { mat.emissive = new THREE.Color(0xffeeaa); mat.emissiveIntensity = 0.6; }
+    m.material = mat; materials.push(mat);
+  });
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const h0 = Math.max(0.2, box.max.y - Math.min(0, box.min.y));
+  const want = opts.height ?? 1.6;
+  const wrap = new THREE.Group(); wrap.add(root);
+  root.scale.setScalar(want / h0);
+  const mixer = new THREE.AnimationMixer(root);
+  const actions = new Map<string, THREE.AnimationAction>();
+  for (const c of g.animations) actions.set(c.name, mixer.clipAction(c));
+  const clipsMap: Partial<Record<AnimName, string>> = {};
+  for (const [a, re] of BEAST_MAP) if (!clipsMap[a]) { const c = g.animations.find((x) => re.test(x.name)); if (c) clipsMap[a] = c.name; }
+  clipsMap.idle ??= g.animations[0]?.name;
+  for (const a of ['sprint', 'jump', 'fall', 'land', 'shoot', 'cast', 'castshoot', 'spawn', 'combat', 'taunt', 'channel', 'talk'] as AnimName[]) clipsMap[a] ??= a === 'sprint' ? clipsMap.run ?? clipsMap.walk : /cast|shoot|taunt|channel/.test(a) ? clipsMap.attack2 ?? clipsMap.attack : clipsMap.idle;
+  return { root: wrap, mixer, actions, clipsMap, materials, height: want };
+}
+
 /** Instantiate a skinned character with its own mixer; hides named accessory meshes. */
 export async function makeCharacter(model: string, opts: { hide?: string[]; tint?: number; accent?: number; headgear?: boolean; cape?: boolean; scale?: number; skeleton?: boolean } = {}): Promise<CharacterRig> {
   const g = await loadGLTF(`models/chars/${model}.glb`);

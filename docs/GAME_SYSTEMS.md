@@ -31,3 +31,24 @@ Skill kinds: projectile, strike, nova, cone, dash, buff, heal, summon. Effects: 
 **Titles and reputation.** 16 titles (First Blood, Slayer, Iron Wall, Wind Dancer, Combo Artist, Bossbreaker, Weapon Master…) shown above your name; 7 factions (Capital, Forest Wardens, Mountain Kingdom, Sand Nomads, Frost Clans, Order of the Veil, Tower Climbers) from Hostile to Exalted.
 
 Tests: `tests/unit/rpg.test.ts` (kits, rules, dodge determinism, parry, points, advanced class, death penalty, summons, heals, reactions) and `tests/e2e/m1.mjs` (a real browser plays it).
+
+## M2 · World: seven streamed regions
+
+One server, seven zones (`src/shared/regions.ts`). The Capital is the hand-built map; the other six are generated deterministically from a config (terrain recipe, ground layers and tints, fog, trees, weather table, town style, shrines, gates, monster camps, field boss), so the server validates movement against exactly the geometry the client draws.
+
+| Region | Levels | Town | Monsters | Field boss | Weather |
+|---|---|---|---|---|---|
+| The Capital | 1–10 | Capital City | Hollow Skeleton, Grave Knight, Bone Magus | Varkas the Grave Lord (Hollow Ruins) | clear, rain, storm, fog |
+| Ancient Forest | 8–16 | Elderwood Haven (camp) | Timber Wolf, Sporeling, Thorn Blob, Webweaver | Ylva, the Mushroom Queen | rain, fog, storm |
+| Mountain Kingdom | 14–24 | Kharaz Hold (stone) | Rockling, Cave Orc, Crag Bat, Highland Raider | The Iron Colossus | fog, rain, storm |
+| Sunscorch Desert | 20–30 | Sunspire Oasis (adobe) | Dune Viper, Sand Wasp, Brass Scarab, Sand Mummy | Sandmaw Tyrant | clear, sandstorm |
+| Frozen Lands | 26–36 | Frosthold (ice) | Snow Yeti, Frost Wolf, Ice Wraith, Rime Glub | Hrimfang the Frost Wyrm | snow, blizzard |
+| Forbidden Territory | 34–45 | Last Light Outpost (ruins) | Void Imp, Screaming Skull, Abyss Squid, Warp Wisp | Archfiend Malakar | ash, fog, storm |
+| Foot of the Tower | 40–60 | Climbers' Rest (plaza) | Tower Sentinel, Starspawn, Guardian Construct | Skyfang, Gatekeeper of the Tower | clear, storm, fog |
+
+- **Streaming:** the browser holds one region at a time. Walking through a glowing gate (or fast travel) sends a `zone` message; the client drops the old region's ground, foliage and buildings and builds the new one behind a short veil (0.5–2 s in tests). Monster models are fetched the first time they are seen, and the menu still loads in under 2 s.
+- **Server:** each tick runs zone by zone with that zone's geometry active (`setActiveZone`). Snapshots and effects only reach players in the same zone, and a zone with nobody in it sleeps.
+- **Shrines:** touch a shrine's crystal to attune it. The world map (M) lists every attuned shrine for fast travel (refused while in combat), and you rise at the last shrine you touched.
+- **Day/night** is shared across the world. **Weather** is per region (rain, storm, fog, snow, blizzard, sandstorm, ash), with its own precipitation look and fog.
+
+Tests: `tests/unit/world.test.ts` (gates connect both ways, spawns/shrines/arrivals are standable, per-zone collision, deterministic movement, zone travel, shrines, respawn binding, sleeping zones, per-region weather) and `tests/e2e/m2.mjs` (walks through a real gate, streams all seven regions, finds each field boss, attunes a shrine and fast-travels both ways).

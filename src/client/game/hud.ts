@@ -5,7 +5,7 @@ import { SpellDef, classById } from '../../shared/combat';
 import { skillForSlot, rankScale, SKILLS } from '../../shared/skills';
 import type { ProgressView } from '../../shared/protocol';
 import { NPCS } from '../../server/core/npcdefs';
-import { buildZone, POIS, poiAt, LAKE, ROAD, ROAD2, ROAD3, TOWER, heightAt } from '../../shared/world';
+import { buildZone, POIS, poiAt, LAKE, ROADS, TOWER, heightAt, REGION, WATER_LEVEL } from '../../shared/world';
 import { settings } from '../settings';
 import { openSettings } from '../ui/settings';
 import { audio } from '../audio';
@@ -294,6 +294,9 @@ export class Hud {
   }
   hideDeath() { this.deathEl?.remove(); this.deathEl = null; }
 
+  /** Phase 4: a new region streamed in — redraw the map. */
+  invalidateMap() { this.mmBase = null; this.zoneShown = ''; }
+
   private drawMinimapBase() {
     const c = document.createElement('canvas'); c.width = c.height = 512;
     const g = c.getContext('2d')!;
@@ -303,14 +306,16 @@ export class Hud {
       const x = i / S - 210, z = j / S - 210, h = heightAt(x, z);
       const k = (j * 512 + i) * 4;
       let r = 40 + h * 2, gg = 60 + h * 2.2, b = 38 + h;
-      if (h < 0.6) { r = 30; gg = 70; b = 90; }
+      if (h < WATER_LEVEL) { r = 30; gg = 70; b = 90; }
       if (h > 30) { r = gg = b = 70 + h * 0.8; }
+      // region tint (sand gold, snow white, forbidden violet …)
+      if (REGION.id !== 'capital') { const tc = REGION.tints[0]; const L = 0.5 + h * 0.012; r = ((tc >> 16) & 255) * L; gg = ((tc >> 8) & 255) * L; b = (tc & 255) * L; }
       img.data[k] = r; img.data[k + 1] = gg; img.data[k + 2] = b; img.data[k + 3] = 255;
     }
     g.putImageData(img, 0, 0);
     const P = (x: number, z: number): [number, number] => [(x + 210) * S, (z + 210) * S];
     g.strokeStyle = 'rgba(210,180,120,.8)'; g.lineWidth = 3;
-    for (const road of [ROAD, ROAD2, ROAD3]) { g.beginPath(); road.forEach((p, i) => { const [a, b] = P(p.x, p.z); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); g.stroke(); }
+    for (const road of ROADS) { g.beginPath(); road.forEach((p, i) => { const [a, b] = P(p.x, p.z); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); g.stroke(); }
     g.fillStyle = '#8a8478';
     for (const c2 of buildZone().colliders) if (c2.kind === 'box' && (c2.tag === 'wall' || c2.tag === 'building' || c2.tag === 'tower')) { const [a, b] = P(c2.x - c2.hx, c2.z - c2.hz); g.fillRect(a, b, c2.hx * 2 * S, c2.hz * 2 * S); }
     g.fillStyle = 'rgba(30,60,30,.5)';
@@ -318,6 +323,9 @@ export class Hud {
     g.font = '600 13px Rajdhani'; g.textAlign = 'center';
     for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
     void LAKE;
+    // fast-travel shrines (blue diamonds) and region gates (gold arches)
+    for (const s of REGION.shrines) { const [a, b] = P(s.x, s.z); g.fillStyle = '#7fd8ff'; g.beginPath(); g.moveTo(a, b - 7); g.lineTo(a + 5, b); g.lineTo(a, b + 7); g.lineTo(a - 5, b); g.closePath(); g.fill(); }
+    for (const e of REGION.exits) { const [a, b] = P(e.x, e.z); g.strokeStyle = '#ffd36a'; g.lineWidth = 3; g.beginPath(); g.arc(a, b, 7, Math.PI, 0); g.stroke(); }
     this.mmBase = c;
   }
 
@@ -383,9 +391,9 @@ export class Hud {
     const cam = e.camera, v = new THREE.Vector3();
     for (const r of this.g.remotes.values()) {
       const d = r.view.root.position.distanceTo(this.g.renderPos);
-      const show = d < (r.t === 'n' ? 22 : 40) && r.view.root.visible;
+      const show = d < (r.t === 'n' ? 22 : r.view.height > 3 ? 70 : 40) && r.view.root.visible;
       if (!show) { r.plate.style.display = 'none'; continue; }
-      v.copy(r.view.root.position); v.y += r.t === 'm' && r.key === 'warrior' ? 2.7 : 2.45;
+      v.copy(r.view.root.position); v.y += r.view.height ? r.view.height + 0.45 : r.t === 'm' && r.key === 'warrior' ? 2.7 : 2.45;
       v.project(cam);
       if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { r.plate.style.display = 'none'; continue; }
       r.plate.style.display = '';
@@ -401,11 +409,11 @@ export class Hud {
     }
     // zone title on entering a new area
     const poi = poiAt(this.g.renderPos.x, this.g.renderPos.z);
-    const zname = poi?.name ?? 'Ancient Forest';
+    const zname = poi?.name ?? REGION.name;
     this.mmLabel.textContent = zname;
     if (zname !== this.zoneShown) {
       this.zoneShown = zname;
-      const z = el('div', 'zone-title', `<div class="a">${esc(zname)}</div><div class="b">${poi?.id === 'gate' || poi?.id === 'plaza' ? 'Edge of the Capital City' : 'The Ancient Forest'}</div>`);
+      const z = el('div', 'zone-title', `<div class="a">${esc(zname)}</div><div class="b">${esc(REGION.name)} · Lv ${REGION.levels[0]}–${REGION.levels[1]}</div>`);
       this.root.appendChild(z); setTimeout(() => z.remove(), 5000);
     }
     this.drawMinimap();

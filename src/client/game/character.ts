@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeCharacter, CharacterRig, AnimName } from '../engine/assets';
+import { makeCharacter, makeBeast, CharacterRig, AnimName } from '../engine/assets';
 import { makeHero, heroModel, UAL_GAIT, HeroRig } from '../engine/heroes';
 import { makeCloak, CloakFX } from '../engine/cloak';
 import { buildWeapon, WeaponFX, WeaponModel } from '../engine/weapons';
@@ -39,6 +39,8 @@ export class CharacterView {
     } else if (kind === 'm') {
       const m = MONSTERS[key as MonsterKind] ?? MONSTERS.minion;
       model = m.model; skeleton = true; scale = m.scale ?? (key === 'warrior' ? 1.12 : 1); tint = m.tint;
+      if (m.boss && !m.model.startsWith('q:')) this.height = 2.2 * scale;
+      if (m.model.startsWith('q:')) this.beast = { file: m.model.slice(2), tint: m.tint, height: m.height ?? 1.6 };
     } else if (kind === 's') {
       const s = SUMMONS[key] ?? SUMMONS.wolf;
       model = s.model; skeleton = true; scale = s.scale; tint = s.tint; this.spirit = s.tint;
@@ -64,6 +66,10 @@ export class CharacterView {
         }
         this.play('idle', 0); if (this.pendingWeapon !== undefined) this.setWeapon(this.pendingWeapon);
       });
+    } else if (this.beast) {
+      const b = this.beast;
+      this.height = b.height;
+      this.ready = makeBeast(b.file, { tint: b.tint, height: b.height }).then((rig) => { this.rig = rig; this.root.add(rig.root); this.play('idle', 0); });
     } else {
       this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
         this.rig = rig;
@@ -77,6 +83,9 @@ export class CharacterView {
   }
 
   hero: HeroRig | null = null;
+  /** nameplate height (m) for big models; 0 = default */
+  height = 0;
+  beast: { file: string; tint?: number; height: number } | null = null;
   spirit: number | undefined = undefined;
   cloak: CloakFX | null = null;
   weapon: WeaponFX | null = null;

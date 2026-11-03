@@ -1,3 +1,4 @@
+import { BESTIARY } from './bestiary';
 /** Combat & progression rules (pure, unit-tested, used by the authoritative server). */
 
 export type ClassId = 'warrior' | 'mage' | 'archer' | 'assassin' | 'knight' | 'summoner' | 'healer';
@@ -33,11 +34,13 @@ export type MonsterKind = string;
 export interface MonsterDef { kind: MonsterKind; name: string; model: string; hp: number; atk: number; def: number; xp: number; speed: number; aggro: number; attackRange: number; attackCd: number; ranged: boolean; level: number; weakTo: Element;
   /** visual: tint multiplies the model's colours, scale its size */ tint?: number; scale?: number; boss?: boolean; region?: string; element?: Element;
   /** boss specials: slam (nova around self), volley (ranged burst), summon (adds), enrage (below 30 %) */ specials?: ('slam' | 'volley' | 'summon' | 'enrage' | 'charge' | 'breath')[]; adds?: MonsterKind; gold?: number; faction?: string }
-export const MONSTERS: Record<MonsterKind, MonsterDef> = {
+export const MONSTERS: Record<MonsterKind, MonsterDef & { height?: number }> = {
   minion: { kind: 'minion', name: 'Hollow Skeleton', model: 'Skeleton_Minion', hp: 70, atk: 9, def: 3, xp: 28, speed: 2.6, aggro: 15, attackRange: 2.1, attackCd: 1.6, ranged: false, level: 2, weakTo: 'light' },
   warrior: { kind: 'warrior', name: 'Grave Knight', model: 'Skeleton_Warrior', hp: 150, atk: 15, def: 7, xp: 70, speed: 2.3, aggro: 17, attackRange: 2.4, attackCd: 2.0, ranged: false, level: 4, weakTo: 'fire' },
   magus: { kind: 'magus', name: 'Bone Magus', model: 'Skeleton_Mage', hp: 95, atk: 13, def: 4, xp: 60, speed: 2.2, aggro: 22, attackRange: 16, attackCd: 2.6, ranged: true, level: 4, weakTo: 'lightning' },
 };
+Object.assign(MONSTERS, BESTIARY);
+
 
 /** XP needed to go from `level` to `level+1`. */
 export function xpToNext(level: number): number {

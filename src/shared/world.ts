@@ -1,4 +1,6 @@
 import { fbm, ridged, mulberry32, noise2, clamp, smoothstep, lerp } from './rng';
+import { REGIONS, makeGenZone, regionPois, type ZoneId, type GenZone, type RegionDef } from './regions';
+export type { ZoneId } from './regions';
 
 /** The starter zone: edge of the Capital City (north) and the Ancient Forest (south).
  *  Everything here is deterministic and pure so the server validates movement against
@@ -7,18 +9,21 @@ import { fbm, ridged, mulberry32, noise2, clamp, smoothstep, lerp } from './rng'
 export const WORLD_SEED = 100;
 export const ZONE_HALF = 200;          // playable half-extent (m)
 export const BOUND = 192;              // invisible boundary
-export const WATER_LEVEL = 0.6;
+const CAP_WATER = 0.6;
+export let WATER_LEVEL = CAP_WATER;
 export const CITY_Y = 5;
 export const CITY = { x0: -150, x1: 150, z0: -160, z1: -92 }; // plateau inside walls
 export const WALL_Z = -90;
 export const GATE_HALF = 6;
-export const LAKE = { x: -78, z: 22, r: 34 };
-export const TOWER = { x: 520, z: -2300, height: 1900, radius: 120 };
-export const SPAWN = { x: 0, z: -72, yaw: 0 };
+export const CAPITAL_LAKE = { x: -78, z: 22, r: 34 };
+export let LAKE = CAPITAL_LAKE;
+export let TOWER = { x: 520, z: -2300, height: 1900, radius: 120 };
+export const CAPITAL_SPAWN = { x: 0, z: -72, yaw: 0 };
+export let SPAWN = CAPITAL_SPAWN;
 
 export type Vec2 = { x: number; z: number };
 export interface POI { id: string; name: string; x: number; z: number; r: number }
-export const POIS: POI[] = [
+export const CAPITAL_POIS: POI[] = [
   { id: 'gate', name: 'Gate of Dawn', x: 0, z: -84, r: 14 },
   { id: 'plaza', name: 'Plaza of the First Sky', x: 0, z: -122, r: 18 },
   { id: 'lake', name: 'Lake Mirrorveil', x: LAKE.x, z: LAKE.z, r: LAKE.r + 8 },
@@ -26,7 +31,10 @@ export const POIS: POI[] = [
   { id: 'shrine', name: 'Whispering Shrine', x: -104, z: 122, r: 14 },
   { id: 'glade', name: 'Ember Glade', x: 118, z: 4, r: 18 },
   { id: 'camp', name: "Wanderer's Camp", x: -30, z: 52, r: 12 },
+  ...REGIONS.capital.exits.map((e) => ({ id: 'exit_' + e.to, name: e.name, x: e.x, z: e.z, r: 12 })),
+  { id: 'shrine_dawn', name: 'Shrine of Dawn', x: 10, z: -66, r: 5 },
 ];
+export let POIS: POI[] = CAPITAL_POIS;
 
 /** Road polyline from the gate into the forest. */
 export const ROAD: Vec2[] = [
@@ -43,14 +51,14 @@ function distSeg(px: number, pz: number, a: Vec2, b: Vec2): number {
   const qx = a.x + dx * t - px, qz = a.z + dz * t - pz;
   return Math.sqrt(qx * qx + qz * qz);
 }
-export function distToRoad(x: number, z: number): number {
+function capDistToRoad(x: number, z: number): number {
   let d = 1e9;
   for (const r of [ROAD, ROAD2, ROAD3]) for (let i = 0; i < r.length - 1; i++) d = Math.min(d, distSeg(x, z, r[i], r[i + 1]));
   return d;
 }
 
 /** 0 = outside city plateau, 1 = fully inside. */
-export function cityMask(x: number, z: number): number {
+function capCityMask(x: number, z: number): number {
   const dx = Math.max(CITY.x0 - x, 0, x - CITY.x1);
   const dz = Math.max(CITY.z0 - z, 0, z - CITY.z1 - 6);
   return 1 - smoothstep(0, 22, Math.sqrt(dx * dx + dz * dz));
@@ -59,9 +67,9 @@ export function cityMask(x: number, z: number): number {
 function rawHeight(x: number, z: number): number {
   let h = 5.5 * fbm(x / 95, z / 95, 5, WORLD_SEED) + 1.6 * fbm(x / 23, z / 23, 3, WORLD_SEED + 9) + 4.2;
   // gentle bowl toward the lake
-  const ld = Math.hypot(x - LAKE.x, z - LAKE.z);
-  const lakeT = 1 - smoothstep(LAKE.r * 0.35, LAKE.r * 1.35, ld);
-  h = lerp(h, WATER_LEVEL - 3.2, lakeT);
+  const ld = Math.hypot(x - CAPITAL_LAKE.x, z - CAPITAL_LAKE.z);
+  const lakeT = 1 - smoothstep(CAPITAL_LAKE.r * 0.35, CAPITAL_LAKE.r * 1.35, ld);
+  h = lerp(h, CAP_WATER - 3.2, lakeT);
   // outer mountains ring (natural world border)
   const edge = Math.max(Math.abs(x), Math.abs(z));
   const m = smoothstep(165, 290, edge);
@@ -70,15 +78,15 @@ function rawHeight(x: number, z: number): number {
 }
 
 /** Terrain height, the single source of truth for ground. */
-export function heightAt(x: number, z: number): number {
+function capitalHeight(x: number, z: number): number {
   let h = rawHeight(x, z);
-  const c = cityMask(x, z);
+  const c = capCityMask(x, z);
   if (c > 0) h = lerp(h, CITY_Y, c);
-  const rd = distToRoad(x, z);
+  const rd = capDistToRoad(x, z);
   if (rd < 9) {
     const t = 1 - smoothstep(3.5, 9, rd);
     const target = lerp(rawHeight(x, z) * 0.6 + 2.0, CITY_Y, c);
-    h = lerp(h, Math.max(target, WATER_LEVEL + 0.8), t * 0.85);
+    h = lerp(h, Math.max(target, CAP_WATER + 0.8), t * 0.85);
   }
   return h;
 }
@@ -100,7 +108,7 @@ export type Collider = BoxCollider | CylCollider;
 
 export interface TreeInst { type: number; x: number; z: number; s: number; rot: number }
 export interface PropInst { model: string; x: number; y: number; z: number; s: number; rot: number }
-export interface Building { x: number; z: number; w: number; d: number; h: number; yaw: number; roof: 'gable' | 'cone' | 'flat'; name: string }
+export interface Building { x: number; z: number; w: number; d: number; h: number; yaw: number; roof: 'gable' | 'cone' | 'flat' | 'tent' | 'dome'; name: string; y?: number; style?: string; broken?: boolean }
 
 export const TREE_TYPES = ['NormalTree_1', 'NormalTree_2', 'NormalTree_3', 'NormalTree_4', 'PineTree_1', 'PineTree_2', 'BirchTree_1', 'DeadTree_1', 'DeadTree_3'];
 
@@ -119,7 +127,7 @@ function box(x: number, z: number, hx: number, hz: number, y0: number, y1: numbe
 }
 
 let cached: ZoneData | null = null;
-export function buildZone(): ZoneData {
+function buildCapital(): ZoneData {
   if (cached) return cached;
   const colliders: Collider[] = [];
   const buildings: Building[] = [];
@@ -172,27 +180,27 @@ export function buildZone(): ZoneData {
   // Hollow Ruins: a broken ring of pillars
   const ruins: ZoneData['ruins'] = [];
   const rnd = mulberry32(WORLD_SEED + 77);
-  const R = POIS.find((p) => p.id === 'ruins')!;
+  const R = CAPITAL_POIS.find((p) => p.id === 'ruins')!;
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
     const x = R.x + Math.cos(a) * 15, z = R.z + Math.sin(a) * 15;
     const broken = rnd() < 0.45;
     const h = broken ? 2 + rnd() * 3 : 8 + rnd() * 2;
-    const g = heightAt(x, z);
+    const g = capitalHeight(x, z);
     ruins.push({ x, z, h, r: 0.9, broken });
     colliders.push({ kind: 'cyl', x, z, r: 0.95, y0: g - 2, y1: g + h, tag: 'pillar' });
   }
   // ruined wall segment + altar at the shrine
-  const S = POIS.find((p) => p.id === 'shrine')!;
-  const sg = heightAt(S.x, S.z);
+  const S = CAPITAL_POIS.find((p) => p.id === 'shrine')!;
+  const sg = capitalHeight(S.x, S.z);
   colliders.push(box(S.x, S.z, 1.4, 0.9, sg - 1, sg + 1.1, 0.4, 'altar'));
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.3;
-    const x = S.x + Math.cos(a) * 8, z = S.z + Math.sin(a) * 8, g = heightAt(x, z);
+    const x = S.x + Math.cos(a) * 8, z = S.z + Math.sin(a) * 8, g = capitalHeight(x, z);
     colliders.push({ kind: 'cyl', x, z, r: 0.75, y0: g - 1, y1: g + 4.5, tag: 'stone' });
     ruins.push({ x, z, h: 4.5, r: 0.75, broken: false });
   }
-  const rg = heightAt(R.x - 4, R.z - 22);
+  const rg = capitalHeight(R.x - 4, R.z - 22);
   colliders.push(box(R.x - 4, R.z - 22, 7, 0.8, rg - 1, rg + 3.4, 0.25, 'ruinwall'));
 
   // Forest scatter
@@ -204,17 +212,17 @@ export function buildZone(): ZoneData {
     for (let gz = -ZONE_HALF - 40; gz < ZONE_HALF + 40; gz += cell) {
       const x = gx + rnd() * cell, z = gz + rnd() * cell;
       const r1 = rnd(), r2 = rnd(), r3 = rnd(), r4 = rnd();
-      if (cityMask(x, z) > 0.02 || z < WALL_Z + 8) continue;
-      if (distToRoad(x, z) < 6.5) continue;
-      if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 4) continue;
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 16) continue;
+      if (capCityMask(x, z) > 0.02 || z < WALL_Z + 8) continue;
+      if (capDistToRoad(x, z) < 6.5) continue;
+      if (Math.hypot(x - CAPITAL_LAKE.x, z - CAPITAL_LAKE.z) < CAPITAL_LAKE.r + 4) continue;
+      if (Math.hypot(x - CAPITAL_SPAWN.x, z - CAPITAL_SPAWN.z) < 16) continue;
       let clear = false;
-      for (const p of POIS) if (p.id !== 'lake' && Math.hypot(x - p.x, z - p.z) < p.r) clear = true;
+      for (const p of CAPITAL_POIS) if (p.id !== 'lake' && Math.hypot(x - p.x, z - p.z) < p.r) clear = true;
       if (clear) continue;
       const edge = Math.max(Math.abs(x), Math.abs(z));
       const forest = 0.5 + 0.5 * fbm(x / 60, z / 60, 3, WORLD_SEED + 21) + smoothstep(-40, 100, z) * 0.35 + smoothstep(170, 200, edge) * 0.4;
-      const h = heightAt(x, z);
-      if (h < WATER_LEVEL + 0.4) continue;
+      const h = capitalHeight(x, z);
+      if (h < CAP_WATER + 0.4) continue;
       if (r1 < forest * 0.62) {
         const pine = noise2(x / 50, z / 50, 5) > 0.15 || h > 22;
         const type = pine ? 4 + (r2 < 0.5 ? 0 : 1) : r2 < 0.04 ? 7 + (r3 < 0.5 ? 0 : 1) : r2 < 0.16 ? 6 : Math.floor(r3 * 4);
@@ -240,3 +248,32 @@ export function poiAt(x: number, z: number): POI | null {
   for (const p of POIS) if (Math.hypot(x - p.x, z - p.z) < p.r) return p;
   return null;
 }
+
+// ------------------------------------------------------------------------------------------
+// Phase 4 · M2: the active-zone facade. Server and client call setActiveZone() before touching
+// geometry for an entity of that zone; everything above (heightAt, buildZone, POIS, SPAWN…)
+// then answers for that zone. Capital = the hand-built map; other regions are generated.
+export let ZONE: ZoneId = 'capital';
+export let REGION: RegionDef = REGIONS.capital;
+export let ROADS: Vec2[][] = [ROAD, ROAD2, ROAD3];
+const gens: Partial<Record<ZoneId, GenZone>> = {};
+const gen = (id: ZoneId) => (gens[id] ??= makeGenZone(REGIONS[id]));
+const NO_LAKE = { x: 9999, z: 9999, r: 0 };
+const regionPoisCache: Partial<Record<ZoneId, POI[]>> = {};
+export function setActiveZone(id: ZoneId | string | undefined) {
+  const z = ((id && id in REGIONS) ? id : 'capital') as ZoneId;
+  if (z === ZONE) return;
+  ZONE = z; REGION = REGIONS[z];
+  if (z === 'capital') { WATER_LEVEL = CAP_WATER; LAKE = CAPITAL_LAKE; SPAWN = CAPITAL_SPAWN; POIS = CAPITAL_POIS; ROADS = [ROAD, ROAD2, ROAD3]; }
+  else { const g = gen(z); WATER_LEVEL = REGION.water; LAKE = NO_LAKE; SPAWN = REGION.spawn; POIS = (regionPoisCache[z] ??= regionPois(REGION)); ROADS = g.roads; }
+  TOWER = { ...TOWER, x: REGION.tower.x, z: REGION.tower.z };
+}
+/** Run fn with `id` active, then restore the previous zone. */
+export function withZone<T>(id: ZoneId | string | undefined, fn: () => T): T {
+  const prev = ZONE; setActiveZone(id);
+  try { return fn(); } finally { setActiveZone(prev); }
+}
+export function heightAt(x: number, z: number): number { return ZONE === 'capital' ? capitalHeight(x, z) : gen(ZONE).height(x, z); }
+export function buildZone(): ZoneData { return ZONE === 'capital' ? buildCapital() : gen(ZONE).build(); }
+export function cityMask(x: number, z: number): number { return ZONE === 'capital' ? capCityMask(x, z) : gen(ZONE).townMask(x, z); }
+export function distToRoad(x: number, z: number): number { return ZONE === 'capital' ? capDistToRoad(x, z) : gen(ZONE).distToRoad(x, z); }

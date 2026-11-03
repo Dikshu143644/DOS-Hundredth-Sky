@@ -5,33 +5,48 @@ import { Water } from './water';
 import { Foliage, wind } from './foliage';
 import { City } from './city';
 import { Tower } from './tower';
+import { Settlement } from './settlement';
+import { setActiveZone, REGION, ZONE, TOWER } from '../../shared/world';
 import { Post } from './post';
 import { PRESETS, settings, Quality, QualityPreset } from '../settings';
 
 export interface LightRequest { pos: THREE.Vector3; color: THREE.Color | number; intensity: number; distance: number; priority: number; shadow?: boolean }
 
-/** Rain as GPU line streaks that wrap around the camera; lightning flashes in storms. */
+/** Precipitation as GPU line streaks that wrap around the camera: rain, snow, blizzard, sand, ash
+ *  (phase 4: one buffer, the look comes from uniforms); lightning flashes in storms. */
+export const PRECIP: Record<string, { amt: number; speed: number; len: number; slant: number; sway: number; wind: number; col: [number, number, number]; alpha: number }> = {
+  rain: { amt: 0.6, speed: 24, len: 0.55, slant: 0.08, sway: 0, wind: 0, col: [0.7, 0.75, 0.85], alpha: 0.55 },
+  storm: { amt: 1, speed: 28, len: 0.7, slant: 0.14, sway: 0, wind: 0, col: [0.7, 0.75, 0.85], alpha: 0.55 },
+  snow: { amt: 0.55, speed: 2.2, len: 0.07, slant: 0, sway: 0.7, wind: 0.6, col: [1, 1, 1], alpha: 0.95 },
+  blizzard: { amt: 1, speed: 5.5, len: 0.14, slant: 0.9, sway: 0.5, wind: 10, col: [1, 1, 1], alpha: 0.95 },
+  sandstorm: { amt: 1, speed: 1.6, len: 0.3, slant: 3.5, sway: 0.3, wind: 17, col: [0.86, 0.7, 0.45], alpha: 0.6 },
+  ash: { amt: 0.7, speed: 1.3, len: 0.06, slant: 0, sway: 0.5, wind: 0.8, col: [0.32, 0.28, 0.3], alpha: 0.9 },
+};
 class Rain {
   mesh: THREE.LineSegments;
   mat: THREE.ShaderMaterial;
   constructor(scene: THREE.Scene, count: number) {
-    const pos = new Float32Array(count * 6), seed = new Float32Array(count * 2);
+    const pos = new Float32Array(count * 6), seed = new Float32Array(count * 2), end = new Float32Array(count * 2);
     for (let i = 0; i < count; i++) {
       const x = Math.random() * 60 - 30, y = Math.random() * 40, z = Math.random() * 60 - 30;
-      pos.set([x, y, z, x, y - 0.55, z], i * 6);
+      pos.set([x, y, z, x, y, z], i * 6);
       const s = Math.random();
-      seed.set([s, s], i * 2);
+      seed.set([s, s], i * 2); end.set([0, 1], i * 2);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
+    g.setAttribute('aEnd', new THREE.BufferAttribute(end, 1));
     this.mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uAmt: { value: 0 }, uCol: { value: new THREE.Color(0.7, 0.75, 0.85) } },
-      vertexShader: `attribute float seed; uniform float uTime, uAmt; uniform vec3 uCam; varying float vA;
-        void main(){ vec3 p = position; p.y = mod(p.y - uTime*(24.0+seed*8.0), 40.0); p.x -= p.y*0.08;
+      uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uAmt: { value: 0 }, uCol: { value: new THREE.Color(0.7, 0.75, 0.85) }, uSpeed: { value: 24 }, uLen: { value: 0.55 }, uSlant: { value: 0.08 }, uSway: { value: 0 }, uWindX: { value: 0 }, uAlpha: { value: 0.55 } },
+      vertexShader: `attribute float seed; attribute float aEnd; uniform float uTime, uAmt, uSpeed, uLen, uSlant, uSway, uWindX, uAlpha; uniform vec3 uCam; varying float vA;
+        void main(){ vec3 p = position; float t = uTime*(1.0+seed*0.35);
+          p.y = mod(p.y - t*uSpeed, 40.0); p.x += t*uWindX + sin(uTime*1.3 + seed*40.0)*uSway; p.z += cos(uTime*1.1 + seed*31.0)*uSway;
+          p.x -= p.y*0.08;
           p.xz = mod(p.xz - uCam.xz + 30.0, 60.0) - 30.0; vec3 w = vec3(uCam.x, uCam.y - 12.0, uCam.z) + p;
-          vA = step(seed, uAmt) * 0.55; gl_Position = projectionMatrix*viewMatrix*vec4(w,1.0); }`,
+          w.y -= aEnd*uLen; w.x -= aEnd*uLen*uSlant;
+          vA = step(seed, uAmt) * uAlpha; gl_Position = projectionMatrix*viewMatrix*vec4(w,1.0); }`,
       fragmentShader: 'uniform vec3 uCol; varying float vA; void main(){ if (vA < 0.01) discard; gl_FragColor = vec4(uCol, vA); }',
     });
     this.mesh = new THREE.LineSegments(g, this.mat);
@@ -61,6 +76,10 @@ export class Engine {
   hours = 17.2;
   weather = 'clear';
   rainAmt = 0;
+  wetAmt = 0;
+  precipKind = 'rain';
+  zone = 'capital';
+  settlement: Settlement | null = null;
   hurt = 0;
   flash = 0;
   lowHp = 0;
@@ -104,6 +123,7 @@ export class Engine {
     onStep('Growing the Ancient Forest');
     this.foliage = new Foliage(this.scene);
     await this.foliage.build(this.renderer, { grass: q.grass, treeNear: q.treeNear, treeFar: q.treeFar, shadows: q.shadows }, this.terrain, this.quality === 'low');
+    this.settlement = new Settlement(this.scene);
     this.rain = new Rain(this.scene, q.rain);
     // fixed light pool: constant light count = no shader recompiles when spells start/stop
     for (let i = 0; i < q.maxLights; i++) {
@@ -135,6 +155,32 @@ export class Engine {
     onStep('Compiling shaders');
     this.renderer.compile(this.scene, this.camera);
     this.ready = true;
+  }
+
+  /** Phase 4 · M2: stream a region in — rebuild ground, foliage and buildings for it. */
+  async loadZone(id: string, onStep: (label: string) => void = () => {}) {
+    setActiveZone(id);
+    this.zone = ZONE;
+    const q = this.q;
+    onStep('Raising the land');
+    for (const m of [this.terrain.mesh, this.terrain.far]) { this.scene.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    this.terrain.heightTex.dispose();
+    this.terrain = new Terrain(this.scene, q.terrainSeg);
+    this.water.mesh.visible = ZONE === 'capital';
+    this.city.group.visible = ZONE === 'capital';
+    onStep('Raising the settlements');
+    this.settlement?.dispose();
+    this.settlement = new Settlement(this.scene);
+    this.tower.group.position.set(TOWER.x, 0, TOWER.z);
+    onStep('Growing the wilds');
+    const old = this.foliage;
+    this.foliage = new Foliage(this.scene);
+    await this.foliage.build(this.renderer, { grass: q.grass, treeNear: q.treeNear, treeFar: q.treeFar, shadows: q.shadows }, this.terrain, this.quality === 'low');
+    old.dispose();
+    this.env.setRegion(REGION.fog, REGION.fogDensity, ZONE === 'capital' ? 0 : 0.45);
+    onStep('Compiling shaders');
+    this.renderer.compile(this.scene, this.camera);
+    this.envT = 0; this.envOc = -1;
   }
 
   applyShadowQuality() {
@@ -174,10 +220,11 @@ export class Engine {
     // torches near the focus compete with spell lights by priority
     const reqs = this.requests;
     if (this.env.night > 0.15) {
-      for (const t of this.city.torches) {
+      for (const t of [...(this.city.group.visible ? this.city.torches : []), ...(this.settlement?.torches ?? [])]) {
         const d = t.pos.distanceTo(this.focus);
-        if (d < 60) reqs.push({ pos: t.pos, color: 0xff9a40, intensity: 9 * this.env.night * (0.9 + Math.sin(this.time * 11 + t.pos.x) * 0.1), distance: 14, priority: 1 - d / 60 });
+        if (d < 60) reqs.push({ pos: t.pos, color: t.flame ? 0xff9a40 : 0x70c8ff, intensity: 9 * this.env.night * (0.9 + Math.sin(this.time * 11 + t.pos.x) * 0.1), distance: 14, priority: 1 - d / 60 });
       }
+
     }
     reqs.sort((a, b) => b.priority - a.priority);
     let i = 0;
@@ -198,16 +245,25 @@ export class Engine {
     this.time += dt;
     const hours = settings.timeOverride ?? this.hours;
     this.env.update(hours, this.weather, this.camera, dt, this.focus, this.q.shadowRange);
-    const targetRain = this.weather === 'storm' ? 1 : this.weather === 'rain' ? 0.6 : 0;
-    this.rainAmt += (targetRain - this.rainAmt) * Math.min(1, dt * 0.3);
+    const pc = PRECIP[this.weather];
+    if (pc) { // switch the look when nothing is falling, else blend into it
+      const u = this.rain.mat.uniforms;
+      if (this.precipKind !== this.weather && this.rainAmt < 0.08) { this.precipKind = this.weather; u.uSpeed.value = pc.speed; u.uLen.value = pc.len; u.uSlant.value = pc.slant; u.uSway.value = pc.sway; u.uWindX.value = pc.wind; u.uAlpha.value = pc.alpha; }
+    }
+    const pk = PRECIP[this.precipKind];
+    const targetRain = pc && this.precipKind === this.weather ? pc.amt : 0;
+    this.rainAmt += (targetRain - this.rainAmt) * Math.min(1, dt * (pc && this.precipKind !== this.weather ? 1.5 : 0.3));
+    this.wetAmt += ((this.precipKind === 'rain' || this.precipKind === 'storm' ? this.rainAmt : 0) - this.wetAmt) * Math.min(1, dt * 0.3);
     this.rain.mat.uniforms.uTime.value = this.time;
     this.rain.mat.uniforms.uCam.value.copy(this.camera.position);
     this.rain.mat.uniforms.uAmt.value = this.rainAmt;
-    this.rain.mat.uniforms.uCol.value.setScalar(0.5 + (1 - this.env.night) * 0.3);
-    this.terrain.uniforms.uWet.value = Math.min(1, this.rainAmt * 1.3);
+    const lit = 0.5 + (1 - this.env.night) * 0.5;
+    if (pk) this.rain.mat.uniforms.uCol.value.setRGB(pk.col[0] * lit, pk.col[1] * lit, pk.col[2] * lit);
+    this.terrain.uniforms.uWet.value = Math.min(1, this.wetAmt * 1.3);
     wind.uWind.value = 0.8 + this.env.overcast * 1.6;
-    this.water.update(this.time, this.env, this.rainAmt);
+    this.water.update(this.time, this.env, this.wetAmt);
     this.city.update(this.time, this.env.night);
+    this.settlement?.update(this.time, this.env.night);
     this.tower.update(this.time, this.env);
     this.foliage.update(this.camera, this.focus, this.time, this.q);
     this.envT -= dt;

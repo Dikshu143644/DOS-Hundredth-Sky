@@ -16,6 +16,11 @@ export class Environment {
   fog: THREE.FogExp2;
   night = 0;          // 0 day … 1 night
   overcast = 0;       // 0 clear … 1 storm (smoothed)
+  regionFog = new THREE.Color(0x9fb4c8);
+  regionMix = 0;
+  regionDensity = 1;
+  fogBoost = 1;
+  setRegion(fog: number, density: number, mix: number) { this.regionFog.set(fog); this.regionDensity = density; this.regionMix = mix; }
   targetOvercast = 0;
   horizon = new THREE.Color();
   sunScreen = new THREE.Vector3();
@@ -108,7 +113,9 @@ export class Environment {
   /** time in hours [0,24) */
   update(hours: number, weather: string, camera: THREE.Camera, dt: number, focus: THREE.Vector3, shadowRange: number) {
     this.time += dt;
-    this.targetOvercast = weather === 'storm' ? 1 : weather === 'rain' ? 0.7 : 0;
+    this.targetOvercast = ({ storm: 1, blizzard: 0.95, rain: 0.7, snow: 0.55, ash: 0.65, sandstorm: 0.45, fog: 0.4 } as Record<string, number>)[weather] ?? 0;
+    const fogBoost = ({ fog: 3.2, sandstorm: 4.5, blizzard: 4, ash: 1.6, snow: 1.4 } as Record<string, number>)[weather] ?? 1;
+    this.fogBoost += (fogBoost - this.fogBoost) * Math.min(1, dt * 0.3);
     this.overcast += (this.targetOvercast - this.overcast) * Math.min(1, dt * 0.25);
     const ang = ((hours - 6) / 12) * Math.PI;
     const elev = Math.sin(ang);
@@ -156,8 +163,10 @@ export class Environment {
 
     // horizon / fog colour
     this.horizon.setRGB(0.72, 0.74, 0.80).lerp(new THREE.Color(1.0, 0.70, 0.46), golden * 0.85).lerp(new THREE.Color(0.035, 0.05, 0.1), this.night).lerp(new THREE.Color(0.42, 0.46, 0.5).multiplyScalar(1 - this.night * 0.8), oc * 0.85);
+    // Phase 4: each region tints its air (forest green haze, desert gold, frozen white, forbidden violet)
+    this.horizon.lerp(this.regionFog.clone().multiplyScalar(1 - this.night * 0.85), this.regionMix);
     this.fog.color.copy(this.horizon);
-    this.fog.density = 0.0009 + oc * 0.0042 + this.night * 0.0006;
+    this.fog.density = (0.0009 + oc * 0.0042 + this.night * 0.0006) * this.regionDensity * this.fogBoost;
 
     (this.stars.material as THREE.PointsMaterial).opacity = this.night * (1 - oc);
     this.stars.position.copy(camera.position);

@@ -1,5 +1,5 @@
 import { mulberry32 } from '../../shared/rng';
-import { POIS } from '../../shared/world';
+import { CAPITAL_POIS as POIS } from '../../shared/world';
 import { MONSTERS, SPELLS, LOOT_TABLE, MonsterKind } from '../../shared/combat';
 import type { QuestView } from '../../shared/protocol';
 import { LlmGate, parseJsonLoose } from './llm';

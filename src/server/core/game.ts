@@ -1,5 +1,7 @@
 import { newCharState, stepCharacter, CharState, MoveInput, PHYS, hasLineOfSight, raycastWorld, sweepDash } from '../../shared/physics';
-import { heightAt, SPAWN, POIS, poiAt, POI, WATER_LEVEL, buildZone } from '../../shared/world';
+import { heightAt, SPAWN, POIS, poiAt, POI, WATER_LEVEL, buildZone, setActiveZone, withZone, ZONE } from '../../shared/world';
+import { Zones } from './zones';
+import { ZONE_IDS, REGIONS } from '../../shared/regions';
 import { mulberry32, clamp } from '../../shared/rng';
 import {
   CLASSES, classById, SPELLS, spellById, BASIC_ATTACK, MONSTERS, MonsterKind, MonsterDef, statsFor, grantXp, xpToNext,
@@ -23,6 +25,7 @@ export interface CharRecord {
   equipment?: Equipment;
   attrs?: Partial<Record<Attr, number>>; skillRanks?: Record<string, number>; adv?: string | null; titles?: string[]; title?: string | null;
   rep?: Record<string, number>; mastery?: Record<string, number>; counters: Record<string, number>; shrine?: string; zone?: string;
+  shrines?: string[]; bind?: string; visited?: string[];
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -44,7 +47,7 @@ export interface GameOptions {
 export type EntType = 'p' | 'm' | 'n' | 'b' | 's';
 export interface Ent { id: number; type: EntType; s: CharState; hp: number; mhp: number; anim: string; animUntil: number; name: string; model: string; dead: boolean; stunUntil: number; level: number; st: FxStatus; zone: string }
 
-export interface Player extends Ent {
+export interface Player extends Ent { exitWarn?: number;
   conn: Conn | null; user: string; char: CharRecord; stats: Stats; mp: number; cds: Record<string, number>;
   inputs: MoveInput[]; budget: InputBudget; lastSeq: number; known: Set<number>;
   casting: null | { spell: string; until: number; target?: number; aim?: { x: number; y: number; z: number }; yaw: number };
@@ -55,7 +58,7 @@ export interface Player extends Ent {
 export interface Monster extends Ent { enraged?: boolean; specialAt?: number; summonedBy?: number; noRespawn?: boolean; def: MonsterDef; home: { x: number; z: number }; ai: 'idle' | 'patrol' | 'chase' | 'attack' | 'flee' | 'return'; target: number; nextAttack: number; wander: { x: number; z: number } | null; aiTimer: number; respawnAt: number; fleeUntil: number; lastHitBy: number; threat: Map<number, number> }
 interface Npc extends Ent { def: NpcDef; bt: BTNode<Npc>; talkTo: number; talkUntil: number; patrolIdx: number; hidden: boolean; goal: { x: number; z: number; anim: string; yaw?: number } | null }
 interface BotBrain { role: ClassId; goal: { x: number; z: number } | null; target: number; retreat: boolean; nextThink: number; nextChat: number }
-export interface Projectile { owner: number; spell: string; x: number; y: number; z: number; dx: number; dy: number; dz: number; speed: number; left: number; power: number; stat: number; homing?: number }
+export interface Projectile { zone?: string; owner: number; spell: string; x: number; y: number; z: number; dx: number; dy: number; dz: number; speed: number; left: number; power: number; stat: number; homing?: number }
 
 const SPAWNS: { kind: MonsterKind; x: number; z: number; n: number }[] = [
   { kind: 'minion', x: 16, z: -30, n: 3 },
@@ -90,12 +93,14 @@ export class Game {
   readonly DAY_SECONDS = 1200; // one in-game day = 20 real minutes
   combat: Combat;
   progress: Progression;
+  zones!: Zones;
+  onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
   removeEnt(id: number) { this.ents.delete(id); }
   /** PvP: players are hostile to each other only inside a duel/arena (set by the social system). */
   pvpHostile(a: Ent, b: Ent): boolean { void a; void b; return false; }
-  weatherAt(p: Ent): string { void p; return this.weather; }
+  weatherAt(p: Ent): string { return this.zones.weatherOf(p.zone); }
   poiIdAt(x: number, z: number): string | null { return poiAt(x, z)?.id ?? null; }
 
   constructor(public o: GameOptions) {
@@ -103,8 +108,11 @@ export class Game {
     this.llm = new LlmGate(o.llm, o.now);
     this.combat = new Combat(this);
     this.progress = new Progression(this);
-    buildZone();
-    for (const sp of SPAWNS) for (let i = 0; i < sp.n; i++) this.spawnMonster(sp.kind, sp.x + (this.rnd() - 0.5) * 10, sp.z + (this.rnd() - 0.5) * 10);
+    this.zones = new Zones(this);
+    for (const z of ZONE_IDS) withZone(z, () => buildZone());
+    setActiveZone('capital');
+    this.zones.spawnAll();
+    setActiveZone('capital');
     for (const d of NPCS) this.spawnNpc(d);
     for (let i = 0; i < o.bots; i++) this.spawnBot(i);
     this.lastTick = o.now();
@@ -193,14 +201,15 @@ export class Game {
         if (!ch) return send({ type: 'charError', error: 'Character not found.' });
         if (c.player) this.removePlayer(c.player);
         for (const p of this.players.values()) if (p.char.id === ch.id && p.conn) { p.conn.send({ type: 'kick', reason: 'Logged in elsewhere.' }); this.removePlayer(p); }
-        const p = this.addPlayer(c.conn, c.user, ch);
+        const user = c.user!;
+        const p = withZone(ZONE, () => this.addPlayer(c.conn, user, ch));
         c.player = p;
         return;
       }
     }
     const p = c.player;
     if (!p) return;
-    this.handlePlayerMsg(p, m, now);
+    withZone(p.zone, () => this.handlePlayerMsg(p, m, now));
   }
 
   private handlePlayerMsg(p: Player, m: C2S, now: number) {
@@ -216,6 +225,8 @@ export class Game {
       case 'attack': this.combat.basicAttack(p, +m.yaw || 0, m.target, now); return;
       case 'parry': this.combat.parry(p, now); return;
       case 'resync': p.known.clear(); return;
+      case 'travel': this.zones.travel(p, String(m.shrine ?? ''), now); return;
+      case 'map': this.zones.sendMap(p); return;
       case 'allocStat': this.progress.allocStat(p, String(m.attr), Number(m.n ?? 1)); return;
       case 'resetStats': this.progress.resetStats(p); return;
       case 'rankSkill': this.progress.rankSkill(p, String(m.skill)); return;
@@ -256,13 +267,15 @@ export class Game {
     const [cmd, arg] = text.slice(1).split(/\s+/, 2);
     const sys = (t: string) => p.conn?.send({ type: 'chat', from: 'System', text: t, channel: 'system' });
     if (cmd === 'who') return sys(`${[...this.players.values()].filter((x) => x.type === 'p').length} player(s), ${[...this.players.values()].filter((x) => x.type === 'b').length} adventurer bot(s) in the zone.`);
-    if (cmd === 'where') { const poi = poiAt(p.s.x, p.s.z); return sys(`${poi ? poi.name : 'Ancient Forest'} (${p.s.x.toFixed(0)}, ${p.s.z.toFixed(0)})`); }
+    if (cmd === 'where') { const poi = poiAt(p.s.x, p.s.z); return sys(`${poi ? poi.name : REGIONS[p.zone as 'capital']?.name} (${p.s.x.toFixed(0)}, ${p.s.z.toFixed(0)})`); }
     if (!this.o.dev) return sys('Commands: /who, /where');
     if (cmd === 'time') { const h = clamp(Number(arg), 0, 24); this.worldTime = h; return sys(`World time set to ${h}:00.`); }
-    if (cmd === 'weather' && (arg === 'clear' || arg === 'rain' || arg === 'storm')) { this.weather = arg; this.weatherUntil = this.o.now() + 600; return sys(`Weather: ${arg}.`); }
+    if (cmd === 'weather' && arg) { this.zones.weather[p.zone] = { w: arg, until: this.o.now() + 600 }; return sys(`Weather: ${arg}.`); }
+    if (cmd === 'zone' && arg && arg in REGIONS) { const r = REGIONS[arg as 'capital']; this.zones.move(p, r.id, r.spawn.x, r.spawn.z, r.spawn.yaw, r.name); return; }
+    if (cmd === 'boss') { const r = REGIONS[p.zone as 'capital']; p.s = newCharState(r.boss.x + 14, r.boss.z + 14, p.s.yaw); p.inputs.length = 0; return; }
     if (cmd === 'tp') { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } return; }
     if (cmd === 'xp') { this.giveXp(p, Number(arg) || 100); return; }
-    sys('Dev commands: /time H, /weather clear|rain|storm, /tp poi, /xp N, /who, /where');
+    sys('Dev commands: /time H, /weather clear|rain|storm|fog|snow|blizzard|sandstorm|ash, /zone id, /boss, /tp poi, /xp N, /who, /where');
   }
 
   /** Class/level stats plus equipped item bonuses (the server is the only place this is computed). */
@@ -284,20 +297,25 @@ export class Game {
     ensureKit(ch);
     ch.counters = ch.counters ?? {};
     const st = this.statsOf(ch);
-    const s = newCharState(SPAWN.x + (this.rnd() - 0.5) * 4, SPAWN.z + (this.rnd() - 0.5) * 3, SPAWN.yaw);
+    // Phase 4: you log in at the shrine you are bound to (in its region)
+    const bind = bot ? { zone: 'capital', x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw } : this.zones.bindPos({ char: ch } as Player);
+    setActiveZone(bind.zone);
+    ch.zone = bind.zone;
+    const s = newCharState(bind.x + (this.rnd() - 0.5) * 4, bind.z + (this.rnd() - 0.5) * 3, bind.yaw);
     const cls = classById(ch.cls);
     const p: Player = {
       id, type: bot ? 'b' : 'p', s, hp: st.maxHp, mhp: st.maxHp, anim: 'idle', animUntil: 0, name: ch.name, model: cls.id, dead: false, stunUntil: 0, level: ch.level,
       conn, user, char: ch, stats: st, mp: st.maxMp, cds: {}, inputs: [], budget: new InputBudget(this.o.now()), lastSeq: 0, known: new Set(), casting: null,
       attackReadyAt: 0, lastHurt: -99, poi: null, streak: 0, lastChat: 0, lastTalk: 0, brain: bot, respawnAt: 0, joinedAt: this.o.now(),
-      st: newStatus(), zone: ch.zone ?? 'capital', combo: { n: 0, last: 0 }, parryCd: 0, weakUntil: 0,
+      st: newStatus(), zone: bind.zone, combo: { n: 0, last: 0 }, parryCd: 0, weakUntil: 0,
     };
     this.ents.set(id, p);
     this.players.set(id, p);
     if (!bot) {
       this.ensureStarterQuest(p);
-      conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.weather, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
-      this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived at the Gate of Dawn.`, channel: 'world' }, id);
+      queueMicrotask(() => this.zones.sendMap(p));
+      conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
+      this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
       this.progress.send(p);
       this.progress.award(p, 'newcomer');
       this.progress.checkTitles(p);
@@ -333,25 +351,30 @@ export class Game {
 
   // ------------------------------------------------------------------ main loop
   tick() {
+    const prevZone = ZONE; // offline mode shares this module with the client: restore its zone
     const now = this.o.now();
     const dt = clamp(now - this.lastTick, 0, 0.25);
     this.lastTick = now;
     this.tickN++;
     this.worldTime = (this.worldTime + (dt * 24) / this.DAY_SECONDS) % 24;
-    if (now > this.weatherUntil) {
-      const r = this.rnd();
-      this.weather = this.weather === 'clear' ? (r < 0.65 ? 'rain' : 'storm') : r < 0.75 ? 'clear' : 'rain';
-      this.weatherUntil = now + (this.weather === 'clear' ? 300 + this.rnd() * 300 : 150 + this.rnd() * 150);
-      this.broadcastAll({ type: 'notice', text: this.weather === 'clear' ? 'The clouds part over the Ancient Forest.' : this.weather === 'storm' ? 'A storm rolls down from the Tower…' : 'Rain begins to fall.', style: 'info' });
-    }
-    for (const p of this.players.values()) this.tickPlayer(p, now, dt);
-    for (const e of [...this.ents.values()]) {
-      if (!e.dead) this.combat.tickStatus(e, now);
-      if (e.type === 'm') this.tickMonster(e as Monster, now, dt);
-      else if (e.type === 'n') this.tickNpc(e as Npc, now, dt);
-      else if (e.type === 's') this.combat.tickSummon(e as Summon, now, dt);
+    this.zones.tickWeather(now);
+    this.weather = this.zones.weatherOf('capital') as any;
+    // Phase 4: tick zone by zone with that zone's geometry active
+    for (const z of ZONE_IDS) {
+      setActiveZone(z);
+      for (const p of this.players.values()) if (p.zone === z) { this.tickPlayer(p, now, dt); if (p.zone === z) this.zones.tickPlayer(p, now); }
+      if (!this.zones.active(z)) continue;
+      for (const e of [...this.ents.values()]) {
+        if (e.zone !== z || e.type === 'p' || e.type === 'b') continue;
+        if (!e.dead) this.combat.tickStatus(e, now);
+        if (e.type === 'm') this.tickMonster(e as Monster, now, dt);
+        else if (e.type === 'n') this.tickNpc(e as Npc, now, dt);
+        else if (e.type === 's') this.combat.tickSummon(e as Summon, now, dt);
+      }
+      for (const p of this.players.values()) if (p.zone === z && !p.dead) this.combat.tickStatus(p, now);
     }
     this.tickProjectiles(now, dt);
+    setActiveZone(prevZone);
     this.sendSnapshots(now);
     if (this.dirty && now - this.lastSave > 5) this.flush();
   }
@@ -411,6 +434,7 @@ export class Game {
       const pr = this.projectiles[i];
       const owner = this.players.get(pr.owner);
       if (!owner) { this.projectiles.splice(i, 1); continue; }
+      setActiveZone(owner.zone);
       if (pr.homing) { // spirit bolts curve toward their target
         const t = this.ents.get(pr.homing);
         if (t && !t.dead) { const dx = t.s.x - pr.x, dy = t.s.y + 1 - pr.y, dz = t.s.z - pr.z, d = Math.hypot(dx, dy, dz) || 1; const k = Math.min(1, dt * 6); pr.dx += (dx / d - pr.dx) * k; pr.dy += (dy / d - pr.dy) * k; pr.dz += (dz / d - pr.dz) * k; const l = Math.hypot(pr.dx, pr.dy, pr.dz) || 1; pr.dx /= l; pr.dy /= l; pr.dz /= l; }
@@ -479,8 +503,8 @@ export class Game {
   onMonsterKilled(m: Monster, killer: Ent, now: number) { void m; void killer; void now; }
 
   /** Where a fallen player comes back (the last shrine they touched). */
-  shrineName(p: Player) { void p; return 'the Gate of Dawn shrine'; }
-  shrinePos(p: Player): { x: number; z: number; yaw: number } { void p; return SPAWN; }
+  shrineName(p: Player) { return this.zones.bindPos(p).name; }
+  shrinePos(p: Player): { x: number; z: number; yaw: number } { const b = this.zones.bindPos(p); if (b.zone !== p.zone) { p.zone = b.zone; p.char.zone = b.zone; setActiveZone(b.zone); p.known.clear(); p.conn?.send({ type: 'zone', zone: b.zone, x: b.x, y: 0, z: b.z, yaw: b.yaw, weather: this.zones.weatherOf(b.zone), label: b.name, region: REGIONS[b.zone].name, levels: REGIONS[b.zone].levels }); } return b; }
 
   private respawnPlayer(p: Player) {
     p.dead = false;
@@ -531,7 +555,7 @@ export class Game {
     }
     if (!this.zoneActive(m.zone)) return; // nobody here: the zone sleeps
     const night = this.isNight();
-    const aggroR = m.def.aggro * (night ? 1.25 : 1) * (this.weather !== 'clear' ? 0.85 : 1);
+    const aggroR = m.def.aggro * (night ? 1.25 : 1) * (this.weatherAt(m) !== 'clear' ? 0.85 : 1);
     let mx = 0, mz = 0, yaw = m.s.yaw, walk = false;
     let tgt = m.target ? this.ents.get(m.target) : undefined;
     if (tgt && (tgt.dead || tgt.zone !== m.zone || !(tgt.type === 'p' || tgt.type === 'b' || tgt.type === 's'))) { tgt = undefined; m.target = 0; }
@@ -585,12 +609,12 @@ export class Game {
             this.broadcastNear(m.s.x, m.s.z, 150, { type: 'fx', kind: 'attack', src: m.id, dst: tgt.id, x: m.s.x, y: m.s.y, z: m.s.z, spell: m.def.ranged ? 'bolt' : undefined });
             const target = tgt;
             const windup = m.def.ranged ? 650 : 480;
-            setTimeout(() => {
+            setTimeout(() => withZone(m.zone, () => {
               const t2 = this.o.now();
               if (m.dead || target.dead || t2 < m.stunUntil) return;
               const dd = Math.hypot(target.s.x - m.s.x, target.s.z - m.s.z);
               if (dd <= reach + 1.2) this.combat.damage(m, target, m.def.atk, 1, m.def.ranged ? (m.def.element ?? 'darkness') : 'physical', t2, { melee: !m.def.ranged });
-            }, windup);
+            }), windup);
           }
         } else { m.ai = 'chase'; mz = 1; }
         break;
@@ -643,7 +667,7 @@ export class Game {
     // telegraph: the client draws the danger zone; damage lands after 1.2 s (dodge it!)
     this.broadcastNear(m.s.x, m.s.z, 200, { type: 'fx', kind: 'cast', src: m.id, spell: 'boss_' + kind, x: m.s.x, y: m.s.y, z: m.s.z, amount: R, text: kind });
     const yaw0 = m.s.yaw;
-    setTimeout(() => {
+    setTimeout(() => withZone(m.zone, () => {
       const t2 = this.o.now();
       if (m.dead) return;
       const victims = [...this.ents.values()].filter((e) => !e.dead && e.zone === m.zone && (e.type === 'p' || e.type === 'b' || e.type === 's'));
@@ -674,7 +698,7 @@ export class Game {
           for (const v of victims) if (Math.hypot(v.s.x - m.s.x, v.s.z - m.s.z) < 3.5) this.combat.damage(m, v, m.def.atk, 1.5, 'physical', t2, { melee: true });
         }
       }
-    }, 1200);
+    }), 1200);
   }
 
   // ------------------------------------------------------------------ NPCs (behaviour trees + routines)
@@ -701,7 +725,7 @@ export class Game {
     else n.anim = n.goal?.anim ? animKey(n.goal.anim) : 'idle';
   }
 
-  zoneActive(zone: string) { void zone; return true; }
+  zoneActive(zone: string) { return this.zones.active(zone); }
   isNight() { return this.worldTime < 5.5 || this.worldTime > 19.5; }
   timeOfDay() { const h = this.worldTime; return h < 5.5 ? 'deep night' : h < 7 ? 'dawn' : h < 11 ? 'morning' : h < 15 ? 'midday' : h < 18.5 ? 'afternoon' : h < 20 ? 'dusk' : 'night'; }
 
@@ -931,12 +955,12 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
       for (const id of p.known) if (!seen.has(id)) gone.push(id);
       p.known = seen;
       const s = p.s;
-      p.conn.send({ type: 'snap', t: now, ack: p.lastSeq, me: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, g: s.grounded, sw: s.swimming, yaw: s.yaw, dg: s.dg, dc: s.dc, ddx: s.ddx, ddz: s.ddz }, ents, gone, self: this.selfState(p), worldTime: this.worldTime, weather: this.weather });
+      p.conn.send({ type: 'snap', t: now, ack: p.lastSeq, me: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, g: s.grounded, sw: s.swimming, yaw: s.yaw, dg: s.dg, dc: s.dc, ddx: s.ddx, ddz: s.ddz }, ents, gone, self: this.selfState(p), worldTime: this.worldTime, weather: this.zones.weatherOf(p.zone) });
     }
   }
 
   broadcastNear(x: number, z: number, r: number, m: S2C, except?: number) {
-    for (const p of this.players.values()) if (p.conn && p.id !== except && Math.hypot(p.s.x - x, p.s.z - z) <= r) p.conn.send(m);
+    for (const p of this.players.values()) if (p.conn && p.id !== except && p.zone === ZONE && Math.hypot(p.s.x - x, p.s.z - z) <= r) p.conn.send(m);
   }
   broadcastAll(m: S2C) { for (const p of this.players.values()) p.conn?.send(m); }
   markDirty() { this.dirty = true; }
