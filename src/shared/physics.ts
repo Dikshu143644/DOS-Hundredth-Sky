@@ -13,9 +13,10 @@ export const PHYS = {
   STEP: 0.5,
   GRAVITY: 22,
   JUMP_V: 7.6,
-  WALK: 2.6,
-  RUN: 6.2,
-  SPRINT: 8.4,
+  // human-scale speeds (phase 2): matched to the realistic body's gait clips so feet never skate
+  WALK: 1.5,
+  RUN: 4.0,
+  SPRINT: 5.6,
   AIR_CONTROL: 0.35,
   ACCEL: 40,
   MAX_SLOPE_NY: 0.62, // ground steeper than ~52° is a wall
