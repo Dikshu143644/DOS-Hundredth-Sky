@@ -127,6 +127,7 @@ export class Hud {
     this.mmWrap = el('div', 'minimap'); this.mm = document.createElement('canvas'); this.mm.width = this.mm.height = 340; this.mmWrap.appendChild(this.mm); this.root.appendChild(this.mmWrap);
     this.mmLabel = el('div', 'mmlabel'); this.root.appendChild(this.mmLabel);
     this.questsEl = el('div', 'quests panel', '<h3>Quests</h3><div class="ql"></div>'); this.root.appendChild(this.questsEl);
+    this.bossEl = el('div', 'boss-bar hidden', '<div class="bn"></div><div class="bt"><i></i></div><div class="bh"></div>'); this.root.appendChild(this.bossEl);
     this.targetEl = el('div', 'target panel hidden', '<div class="nm"></div><div class="bar2 hp"><i class="v"></i><b></b></div>'); this.root.appendChild(this.targetEl);
     // skills (built per class; rebuilt when level / advanced class / ranks change)
     this.skillsEl = el('div', 'skills');
@@ -348,6 +349,29 @@ export class Hud {
     this.eventEl.innerHTML = `<b>${esc(e.title)}</b><small>${esc(e.text)}</small>${e.hp !== undefined ? `<div class="ev-hp"><i style="width:${Math.max(0, Math.min(100, e.hp * 100)).toFixed(1)}%"></i></div>` : ''}`;
   }
   private towerEl: HTMLElement | null = null;
+  private bossEl!: HTMLElement; private bossId = 0;
+  /** POLISH-1: the nearest living boss (tower guardian, field/world/raid boss) within 60 m gets a
+   *  top-centre glass bar with its name and HP. */
+  private updateBossBar() {
+    let best: any = null, bd = 60;
+    const me = this.g.renderPos;
+    for (const r of this.g.remotes.values()) {
+      if (r.t !== 'm' || !((r.ent as any).bs || r.plate.classList.contains('boss')) || r.ent.hp <= 0 || !r.view.root.visible) continue;
+      const d = r.view.root.position.distanceTo(me) - (r.id === this.bossId ? 0 : 0.01);
+      if (d < bd) { bd = d; best = r; }
+    }
+    document.body.classList.toggle('boss-on', !!best);
+    this.bossEl.classList.toggle('hidden', !best);
+    if (!best) { this.bossId = 0; return; }
+    if (best.id !== this.bossId) {
+      this.bossId = best.id;
+      const nm = String(best.name ?? ''), cut = nm.indexOf(',');
+      (this.bossEl.querySelector('.bn') as HTMLElement).innerHTML = cut > 0 ? `${esc(nm.slice(0, cut))}<small>${esc(nm.slice(cut + 1).trim())} · Lv ${best.lv}</small>` : `${esc(nm)}<small>Lv ${best.lv}</small>`;
+    }
+    const f = Math.max(0, Math.min(1, best.ent.hp / Math.max(1, best.ent.mhp)));
+    (this.bossEl.querySelector('.bt i') as HTMLElement).style.width = (f * 100).toFixed(1) + '%';
+    (this.bossEl.querySelector('.bh') as HTMLElement).textContent = `${Math.ceil(best.ent.hp).toLocaleString()} / ${Math.ceil(best.ent.mhp).toLocaleString()}`;
+  }
   /** Phase 4 · M5: floor chip under the minimap (floor, theme, objective). */
   setTower(m: { floor: number; name: string; objective: string; seal: boolean; order: number[] | null; lit: number[] } | null) {
     document.body.classList.toggle('in-tower', !!m);
@@ -383,7 +407,8 @@ export class Hud {
     g.fillStyle = 'rgba(60,110,60,.55)';
     for (const t of buildZone().trees) { const [a, b] = P(t.x, t.z); g.fillRect(a - 1, b - 1, 2.5, 2.5); }
     g.font = '600 12px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif'; g.textAlign = 'center';
-    if (!floorOf(REGION.id)) for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
+    // POLISH-1: icons only on the minimap (names overlapped into a jumble); the one short label sits under the ring
+    if (!floorOf(REGION.id)) for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.arc(a, b, 3.2, 0, Math.PI * 2); g.fill(); g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.stroke(); }
     void LAKE;
     // fast-travel shrines (blue diamonds) and region gates (gold arches)
     for (const s of REGION.shrines) { const [a, b] = P(s.x, s.z); g.fillStyle = '#7fd8ff'; g.beginPath(); g.moveTo(a, b - 7); g.lineTo(a + 5, b); g.lineTo(a, b + 7); g.lineTo(a - 5, b); g.closePath(); g.fill(); }
@@ -479,6 +504,7 @@ export class Hud {
       this.root.appendChild(z); setTimeout(() => z.remove(), 5000);
     }
     this.drawMinimap();
+    this.updateBossBar();
     void dt; void audio;
   }
 }

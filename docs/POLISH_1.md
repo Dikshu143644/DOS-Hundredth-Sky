@@ -1,0 +1,9 @@
+# POLISH-1 · look pass
+
+1. **AI pill** — the HUD reads the server's real LLM state: the `welcome.llm` flag on connect, the server's `ai` messages, and the client's own `/health` poll (at start, then every 45 s). Enabled ⇒ **AI online**; a busy model only changes the tooltip.
+2. **Bosses** — `src/client/engine/bossrig.ts` builds 14 semi-realistic bosses from four archetypes (drake, giant biped, sky serpent, abyss eye) with scales/plates/horns/claws, glowing eyes, dark PBR materials (canvas-generated normal, roughness and vein maps) and baked clips: idle breathing, walk, run, bite/slam, claw/sweep, breath, roar, hit, death. A glass boss bar (name + HP) sits top-centre when a boss is within 60 m. Preview all of them with `tools/bossview` (esbuild bundle + `shot.mjs`).
+3. **Tower interiors** — `src/client/engine/floortheme.ts`: each 10-floor band has its own stone/floor, world-space overlay (moss, damp, lava cracks, snow, storm seams, polish, abyss veins, brass, stars, marble), props (vines/leaves, bones/candles/cobwebs, lava channels/chains, icicles/ice/snow drifts, lightning rods with live arcs, mirror panels/prisms, spikes/blood orbs, turning gears/pipes, constellation inlays/crystal lanterns, gold banners), particles and light, plus cloister vaults with ribs, arched lintels over doors, upper walls and clerestory windows. Visual only — no colliders added, so the floor plans and the flood-fill test are unchanged.
+4. **Minimap** — icons only; the single short label under the ring (hidden in the Tower, where the floor chip says it).
+5. **Goddess screen** — the scene frames the goddess and the soul in the clear band above the cards/dialogue (solved per frame from the UI's top edge); locked skill slots are dimmed light glass.
+
+Screens: `node tests/e2e/p6shots.mjs outDir [W H]` (FLOORS=…, ONLY=…, LLM_SECRET=…).

@@ -202,8 +202,9 @@ Their active quests: ${active.join(' | ') || 'none'}. Quests you could give now:
   aiStatus() {
     const L = this.g.llm;
     const npcs = NPCS.filter((n) => n.ai).length;
-    const status: 'online' | 'degraded' | 'offline' = !L.enabled ? 'offline' : L.lastFailAt > L.lastOkAt && L.failures > 0 ? 'degraded' : 'online';
-    const detail = status === 'offline' ? 'AI is off — NPCs use scripted lines' : status === 'degraded' ? 'AI is busy — some NPC lines are scripted for now' : `${npcs} NPCs speak through the AI`;
+    const status: 'online' | 'degraded' | 'offline' = !L.enabled ? 'offline' : 'online'; // POLISH-1: enabled = online; a busy model only changes the detail line
+    const busy = L.enabled && L.lastFailAt > L.lastOkAt && L.failures > 0 && this.g.o.now() - L.lastFailAt < 120;
+    const detail = status === 'offline' ? 'AI is off — NPCs use scripted lines' : busy ? `${npcs} NPCs speak through the AI (busy right now — a few lines may be scripted)` : `${npcs} NPCs speak through the AI`;
     return { type: 'ai' as const, status, npcs, calls: L.calls, failures: L.failures, detail };
   }
 }

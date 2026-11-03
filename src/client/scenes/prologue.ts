@@ -293,10 +293,40 @@ export class Prologue {
     (this as any).gLight.intensity = gv * 30;
     this.goddess.position.y = 0.5 + Math.sin(this.t * 0.9) * 0.08 + (1 - gv) * -0.5;
     const rig = (this.goddess as any).rig; rig?.mixer.update(dt);
-    if (this.soul) { this.soul.update(dt, 'idle', 0); this.soul.root.position.y = -0.2 + Math.sin(this.t * 1.1 + 1) * 0.06; }
+    if (this.soul) this.soul.update(dt, 'idle', 0);
+    // POLISH-1: while the goddess UI is up, frame the goddess and the soul in the clear band ABOVE the
+    // cards/dialogue (nothing 3D stands behind a card or under the title). Solved per frame from the UI's top.
+    if ((this.frameT -= dt) <= 0) { this.frameT = 0.25; this.safeTop = this.uiTop(); }
+    const H = innerHeight, tanH = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    let want = { y: 0.9, z: 3.6, ly: 1.0, lx: -0.4, sx: -2.7, sy: -0.2, sz: -4.2 };
+    if (this.safeTop !== null && H > 0) {
+      const yTop = 0.84, yBot = Math.max(-0.7, 1 - (2 * (this.safeTop - 18)) / H);
+      if (yTop - yBot > 0.28) {
+        const Ytop = 4.25, Ybot = 0.3, k = (Ytop - Ybot) / (yTop - yBot);
+        const cy = Ytop - yTop * k, dist = Math.min(34, k / tanH);
+        want = { y: cy, z: -6 + dist, ly: cy, lx: -0.9, sx: -2.45 - Math.max(0, 1.2 - this.camera.aspect) * 0.4, sy: 0.6, sz: -5.6 };
+      } else want = { y: 2.2, z: 14, ly: 2.2, lx: -0.9, sx: -2.4, sy: 0.6, sz: -5.6 }; // tiny band (phone): models sit back, faint, behind the glass
+    }
+    const kf = Math.min(1, dt * 3.5), F = this.frame;
+    for (const key of Object.keys(want) as (keyof typeof want)[]) F[key] += (want[key] - F[key]) * kf;
+    if (this.soul) { this.soul.root.position.x = F.sx; this.soul.root.position.z = F.sz; this.soul.root.position.y = F.sy + Math.sin(this.t * 1.1 + 1) * 0.06; }
     // camera drifts
-    this.camera.position.set(Math.sin(this.t * 0.07) * 0.5, 0.9 + Math.sin(this.t * 0.11) * 0.08, 3.6);
-    this.camera.lookAt(-0.4, 1.0, -6);
+    this.camera.position.set(Math.sin(this.t * 0.07) * 0.5, F.y + Math.sin(this.t * 0.11) * 0.08, F.z);
+    this.camera.lookAt(F.lx, F.ly, -6);
+  }
+  private frameT = 0;
+  safeTop: number | null = null;
+  private frame = { y: 0.9, z: 3.6, ly: 1.0, lx: -0.4, sx: -2.7, sy: -0.2, sz: -4.2 };
+  /** Top (CSS px) of whatever goddess UI is on screen: the choice cards' heading, else the dialogue box. */
+  private uiTop(): number | null {
+    const root = document.getElementById('prologue');
+    if (!root || root.offsetParent === null && getComputedStyle(root).position !== 'fixed') return null;
+    let top = Infinity;
+    const ch = root.querySelector('.pro-choices') as HTMLElement | null;
+    if (ch && ch.children.length) top = Math.min(top, ch.getBoundingClientRect().top);
+    const box = root.querySelector('.pro-box') as HTMLElement | null;
+    if (box && box.offsetHeight > 0 && getComputedStyle(box).display !== 'none' && getComputedStyle(box).visibility !== 'hidden') top = Math.min(top, box.getBoundingClientRect().top);
+    return Number.isFinite(top) ? top : null;
   }
   dispose() {
     this.flashEl.remove(); this.capEl.remove();

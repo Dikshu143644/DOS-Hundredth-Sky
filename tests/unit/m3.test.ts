@@ -152,7 +152,8 @@ describe('companion agent + AI status', () => {
     expect(game.quests.aiStatus().status).toBe('online');
     expect(game.quests.aiStatus().npcs).toBeGreaterThanOrEqual(8);
     ok = false; adv(1); await game.llm.ask('u', [{ role: 'user', content: 'x' }]);
-    expect(game.quests.aiStatus().status).toBe('degraded');
+    expect(game.quests.aiStatus().status).toBe('online'); // POLISH-1: the pill stays "AI online" while enabled
+    expect(game.quests.aiStatus().detail).toMatch(/busy/);
     await sleep(1);
   });
 });
