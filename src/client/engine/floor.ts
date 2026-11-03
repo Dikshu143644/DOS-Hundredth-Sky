@@ -4,6 +4,7 @@ import { floorPlan, themeOf, TRAP, SYMBOLS, type FloorPlan } from '../../shared/
 import { worldUV } from './city';
 import { arenaPlan, type ArenaKind } from '../../shared/instances';
 import { tex } from './assets';
+import { FloorTheme } from './floortheme';
 
 export interface TowerView { floor: number; seal: boolean; lit: number[]; braziers: number[]; order: number[] | null; chest: boolean; now: number }
 function bake(geo: THREE.BufferGeometry, x: number, y: number, z: number, yaw = 0) { return geo.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(yaw).setPosition(x, y, z)); }
@@ -31,11 +32,13 @@ export class FloorDeco {
   state: TowerView | null = null;
   clock: () => number = () => performance.now() / 1000;
   sealMat: THREE.ShaderMaterial;
+  theme: FloorTheme;
   constructor(scene: THREE.Scene, n: number, flameTex: THREE.Texture) {
     scene.add(this.group);
     const P = (this.P = floorPlan(n)), th = themeOf(n);
-    const stone = new THREE.MeshStandardMaterial({ map: tex('tex/brick_col.jpg'), normalMap: tex('tex/brick_nor.jpg', { srgb: false }), color: th.wall, roughness: 0.92 });
-    const trim = new THREE.MeshStandardMaterial({ map: tex('tex/rock_col.jpg'), normalMap: tex('tex/rock_nor.jpg', { srgb: false }), color: th.wall, roughness: 0.85 });
+    // POLISH-1: per-band interior (materials, vaults, props, particles, light)
+    this.theme = new FloorTheme(this.group, P, n);
+    const stone = this.theme.wallMat, trim = this.theme.trimMat;
     const wallG: THREE.BufferGeometry[] = [], trimG: THREE.BufferGeometry[] = [];
     for (const w of P.walls) {
       wallG.push(bake(worldUV(new THREE.BoxGeometry(w.hx * 2, w.h, w.hz * 2), 4), w.x, w.h / 2, w.z));
@@ -108,6 +111,7 @@ export class FloorDeco {
   }
   setState(v: TowerView, clock: () => number) { this.state = v; this.clock = clock; }
   update(t: number) {
+    this.theme.update(t);
     this.sealMat.uniforms.uTime.value = t;
     const st = this.state;
     this.seal.visible = !st?.seal;

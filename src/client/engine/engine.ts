@@ -290,6 +290,14 @@ export class Engine {
     }
     this.flash = Math.max(0, this.flash - dt * 3);
     this.hurt = Math.max(0, this.hurt - dt * 1.5);
+    // POLISH-1: Tower interiors are lit from inside (theme light, dimmer sun, tinted ambient)
+    const fl = this.settlement?.floor;
+    if (fl) {
+      const L = fl.theme.L;
+      fl.theme.lights(this.focus, (r) => this.requests.push(r), this.time);
+      this.env.sun.intensity *= L.sun; this.env.hemi.color.lerp(new THREE.Color(L.amb), 0.6); this.env.hemi.groundColor.lerp(new THREE.Color(L.amb).multiplyScalar(0.45), 0.6);
+      this.scene.environmentIntensity *= 0.75;
+    }
     this.assignLights();
     this.frames++;
     this.fpsT += dt;

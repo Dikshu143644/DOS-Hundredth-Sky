@@ -71,6 +71,7 @@ export class GameClient {
     this.input = new Input(engine.canvas);
     this.vfx = new VFX(engine);
     this.hud = new Hud(this, joined.char);
+    this.watchAi();
     this.myView = new CharacterView('p', joined.char.cls, joined.char.appearance);
     this.cls = joined.char.cls;
     this.equipment = joined.equipment ?? {};
@@ -550,6 +551,29 @@ export class GameClient {
   /** NPCs, and your own companion, can be talked to. */
   talkable(r: Remote) { return r.t === 'n' || (r.t === 's' && !!NPCS.find((n) => n.key === r.key && n.role === 'companion')); }
   boardUi: BoardUi | null = null; aiStatus = 'offline';
+  /** POLISH-1: the AI pill reads the server's real LLM state. The server pushes 'ai' messages; on top of
+   *  that the client asks /health itself (at start, then every 45 s), so the pill never sits on a stale
+   *  "offline" when the server's AI is enabled. */
+  private aiTimer = 0;
+  watchAi() {
+    const w = (window as any).__dos?.welcome;
+    if (w && typeof w.llm === 'boolean') this.applyAi(w.llm ? 'online' : 'offline');
+    const poll = () => {
+      if (!this.running) return;
+      fetch('/health', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+        if (!j?.llm) return;
+        const L = j.llm;
+        this.applyAi(L.enabled ? 'online' : 'offline', L.lastModel ?? undefined);
+      }).catch(() => undefined);
+    };
+    poll();
+    clearInterval(this.aiTimer); this.aiTimer = window.setInterval(poll, 45_000);
+  }
+  private applyAi(status: 'online' | 'degraded' | 'offline', model?: string) {
+    const npcs = 10;
+    const detail = status === 'offline' ? 'AI is off — NPCs use scripted lines' : status === 'degraded' ? 'AI is busy — some NPC lines are scripted for now' : `NPCs speak through the AI${model ? ' (' + model + ')' : ''}`;
+    this.hud.setAi({ status, npcs, detail }); this.aiStatus = status;
+  }
   shopUi: ShopUi | null = null; forgeUi: ForgeUi | null = null; tradeUi: TradeUi | null = null; gold = 0; enchant: Record<string, number> = {};
   openShop(npc: string) { document.exitPointerLock?.(); this.net.send({ type: 'shop', npc }); }
   openForge() {

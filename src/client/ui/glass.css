@@ -601,3 +601,24 @@ select.so-in option { color: #222; }
 .ev-chip.arena b { color: #fff; }
 .chat .log .party { color: #a8f0ff; } .chat .log .guild { color: #b8ffc8; }
 @media (max-width: 760px) { .so-cols { grid-template-columns: 1fr; } .pt-frames { top: 74px; left: 8px; width: 150px; } .ev-chip { top: 58px; min-width: 200px; } }
+
+/* POLISH-1: locked skill slots read as dimmed LIGHT glass (no dark discs) */
+.skill.locked { filter: none !important; opacity: 1 !important; background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .07)) !important; border: 1px dashed rgba(255, 255, 255, .38) !important; }
+.skill.locked canvas { opacity: .32; filter: grayscale(1) brightness(1.6) contrast(.7); mix-blend-mode: screen; }
+.skill.locked .nm { color: rgba(255, 255, 255, .62) !important; }
+.skill.locked .lock { color: rgba(255, 255, 255, .92) !important; font-weight: 600; font-size: 9.5px; text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+.skill.locked .cd { background: transparent !important; }
+/* POLISH-1: boss bar, top-centre */
+.boss-bar { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); width: min(480px, 46vw); z-index: 4; text-align: center; pointer-events: none; padding: 9px 16px 11px; border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .20), rgba(255, 255, 255, .08)); border: 1px solid rgba(255, 255, 255, .26); border-top-color: rgba(255, 255, 255, .5);
+  -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 14px 30px -12px rgba(0, 0, 0, .45); transition: opacity .3s; }
+.boss-bar.hidden { opacity: 0; }
+.boss-bar .bn { font: 600 15px/1.2 var(--g-font, -apple-system, Inter, system-ui, sans-serif); color: #fff; letter-spacing: -.01em; text-shadow: 0 1px 6px rgba(0, 0, 0, .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.boss-bar .bn small { font-weight: 500; color: rgba(255, 255, 255, .7); margin-left: 6px; font-size: 12px; }
+.boss-bar .bt { height: 9px; margin-top: 7px; border-radius: 99px; background: rgba(255, 255, 255, .16); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
+.boss-bar .bt i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #ff6b5e, #ffb0a2); transition: width .25s; }
+.boss-bar .bh { margin-top: 4px; font: 500 11px var(--g-font, -apple-system, Inter, system-ui, sans-serif); color: rgba(255, 255, 255, .78); text-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+body.boss-on .ev-chip { top: 92px !important; }
+@media (max-width: 700px) { .boss-bar { top: 8px; width: 72vw; padding: 6px 10px 8px; } .boss-bar .bn { font-size: 13px; } }
+.mmlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.in-tower .mmlabel { display: none !important; }

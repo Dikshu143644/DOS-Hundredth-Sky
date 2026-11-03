@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeCharacter, makeBeast, CharacterRig, AnimName } from '../engine/assets';
+import { makeBossRig, hasBossLook } from '../engine/bossrig';
 import { makeHero, heroModel, UAL_GAIT, HeroRig } from '../engine/heroes';
 import { makeCloak, CloakFX } from '../engine/cloak';
 import { buildWeapon, WeaponFX, WeaponModel } from '../engine/weapons';
@@ -41,6 +42,7 @@ export class CharacterView {
       model = m.model; skeleton = true; scale = m.scale ?? (key === 'warrior' ? 1.12 : 1); tint = m.tint;
       if (m.boss && !m.model.startsWith('q:')) this.height = 2.2 * scale;
       if (m.model.startsWith('q:')) this.beast = { file: m.model.slice(2), tint: m.tint, height: m.height ?? 1.6 };
+      if (hasBossLook(key)) this.beast = { file: '', tint: m.tint, height: m.height ?? 2.2 * scale }; // POLISH-1: procedural boss rig
     } else if (kind === 's' && NPCS.some((n) => n.key === key && n.body)) {
       model = 'Knight'; scale = 1; // a companion: drawn as the person, not a spirit
     } else if (kind === 's') {
@@ -74,7 +76,7 @@ export class CharacterView {
     } else if (this.beast) {
       const b = this.beast;
       this.height = b.height;
-      this.ready = makeBeast(b.file, { tint: b.tint, height: b.height }).then((rig) => { this.rig = rig; this.root.add(rig.root); this.play('idle', 0); });
+      this.ready = (hasBossLook(key) ? makeBossRig(key, b.height) : makeBeast(b.file, { tint: b.tint, height: b.height })).then((rig) => { this.rig = rig; this.root.add(rig.root); this.play('idle', 0); });
     } else {
       this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
         this.rig = rig;

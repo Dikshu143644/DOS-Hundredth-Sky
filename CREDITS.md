@@ -69,3 +69,8 @@ The setting, names and lore come from Omkar Supe's *DOS: The Hundredth Sky* Game
 ## UI
 - **Lucide icons** (https://lucide.dev), ISC licence: inline line icons in `src/client/ui/icons.ts`.
 - **Inter** typeface by Rasmus Andersson (https://rsms.me/inter), SIL Open Font Licence 1.1, via Fontsource.
+
+## POLISH-1 (bosses + Tower interiors)
+
+- **Boss models** (the ten Tower guardians Thornmaw, Vel'thar, Cindrax, Glaciel, Voltaros, the Mirrored Twin, Nyxaroth, Chronarch, Seraphine, Ascalon; the world bosses Gorrath, Vyrnax, the Hollow Mother; the raid boss Kaelthar): built procedurally in code for this project (`src/client/engine/bossrig.ts`: tapered/noise-displaced geometry on named joints, canvas-generated normal/roughness/vein maps, baked AnimationClips). No third-party models, no AI-generated images.
+- **Tower interiors** (`src/client/engine/floortheme.ts`): vaults, ribs, upper walls, windows, props, particles and world-space surface overlays are procedural; surface textures are the existing Poly Haven CC0 sets already listed above.
