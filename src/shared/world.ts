@@ -215,7 +215,7 @@ function buildCapital(): ZoneData {
       if (capCityMask(x, z) > 0.02 || z < WALL_Z + 8) continue;
       if (capDistToRoad(x, z) < 6.5) continue;
       if (Math.hypot(x - CAPITAL_LAKE.x, z - CAPITAL_LAKE.z) < CAPITAL_LAKE.r + 4) continue;
-      if (Math.hypot(x - CAPITAL_SPAWN.x, z - CAPITAL_SPAWN.z) < 16) continue;
+      if (Math.hypot(x - CAPITAL_SPAWN.x, z - CAPITAL_SPAWN.z) < 24) continue; // keep the first view (and camera) clear
       let clear = false;
       for (const p of CAPITAL_POIS) if (p.id !== 'lake' && Math.hypot(x - p.x, z - p.z) < p.r) clear = true;
       if (clear) continue;

@@ -2,7 +2,7 @@ import { newCharState, stepCharacter, CharState, MoveInput, PHYS, hasLineOfSight
 import { heightAt, SPAWN, POIS, poiAt, POI, WATER_LEVEL, buildZone, setActiveZone, withZone, ZONE } from '../../shared/world';
 import { Zones } from './zones';
 import { Origin } from './origin';
-import { applyOrigin, type Injury } from '../../shared/origin';
+import { applyOrigin, migrateCheat, type Injury } from '../../shared/origin';
 import { ZONE_IDS, REGIONS } from '../../shared/regions';
 import { mulberry32, clamp } from '../../shared/rng';
 import {
@@ -14,7 +14,7 @@ import { C2S, S2C, NetEntity, CharacterSummary, Appearance, SelfState, PROTOCOL_
 import { InputBudget } from '../../shared/netcode';
 import { NPCS, NpcDef } from './npcdefs';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
-import { LlmGate, LlmFn, parseJsonLoose } from './llm';
+import { LlmGate, LlmFn, parseJsonLoose, wholeSentences } from './llm';
 import { Quest, SPARKS, generateQuest, questView, DirectorContext } from './director';
 import { Combat, Status as FxStatus, newStatus, Summon } from './combat';
 import { Progression } from './progression';
@@ -283,7 +283,7 @@ export class Game {
     if (cmd === 'weather' && arg) { this.zones.weather[p.zone] = { w: arg, until: this.o.now() + 600 }; return sys(`Weather: ${arg}.`); }
     if (cmd === 'zone' && arg && arg in REGIONS) { const r = REGIONS[arg as 'capital']; this.zones.move(p, r.id, r.spawn.x, r.spawn.z, r.spawn.yaw, r.name); return; }
     if (cmd === 'boss') { const r = REGIONS[p.zone as 'capital']; p.s = newCharState(r.boss.x + 14, r.boss.z + 14, p.s.yaw); p.inputs.length = 0; return; }
-    if (cmd === 'tp') { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } return; }
+    if (cmd === 'tp') { withZone(p.zone, () => { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } }); return; }
     if (cmd === 'xp') { this.giveXp(p, Number(arg) || 100); return; }
     sys('Dev commands: /time H, /weather clear|rain|storm|fog|snow|blizzard|sandstorm|ash, /zone id, /boss, /tp poi, /xp N, /who, /where');
   }
@@ -308,6 +308,7 @@ export class Game {
   private addPlayer(conn: Conn | null, user: string, ch: CharRecord, bot?: BotBrain): Player {
     const id = this.nextId++;
     ensureKit(ch);
+    if (ch.origin?.cheat) ch.origin.cheat = migrateCheat(ch.origin.cheat);
     ch.counters = ch.counters ?? {};
     const st = this.statsOf(ch);
     // Phase 4: you log in at the shrine you are bound to (in its region)
@@ -424,7 +425,7 @@ export class Game {
     // regen
     const outOfCombat = now - p.lastHurt > 6;
     p.mp = Math.min(p.stats.maxMp, p.mp + dt * (outOfCombat ? 6 : 2.5) * p.stats.mpRegen);
-    p.hp = Math.min(p.mhp, p.hp + dt * (outOfCombat ? p.mhp * (p.char.origin?.cheat === 'dragon_heart' ? 0.04 : 0.025) : 0));
+    p.hp = Math.min(p.mhp, p.hp + dt * (outOfCombat ? p.mhp * (p.char.origin?.cheat === 'wyrmblood' ? 0.04 : 0.025) : 0));
     // fell out of the world? (should never happen; belt and braces)
     if (p.s.y < heightAt(p.s.x, p.s.z) - 2 || !isFinite(p.s.x)) { p.s = newCharState(SPAWN.x, SPAWN.z); }
     // points of interest → quests / sparks
@@ -478,7 +479,7 @@ export class Game {
 
   kill(src: Ent, dst: Ent, now: number) {
     if (dst.dead) return;
-    if (dst.type === 'p' && this.origin.rewind(dst as Player, now)) return; // Return by Death
+    if (dst.type === 'p' && this.origin.rewind(dst as Player, now)) return; // Second Dawn
     dst.hp = 0;
     dst.dead = true;
     dst.anim = 'death';
@@ -543,7 +544,7 @@ export class Game {
   }
 
   private giveXp(p: Player, amount: number) {
-    if (p.char.origin?.cheat === 'predator') amount *= 1.15;
+    if (p.char.origin?.cheat === 'devourer') amount *= 1.15;
     const before = p.char.level;
     const r = grantXp(p.char.level, p.char.xp, amount);
     p.char.level = r.level; p.char.xp = r.xp; p.level = r.level;
@@ -778,9 +779,9 @@ Reply with ONLY JSON: {"say": "your spoken reply, max 60 words", "mood": "one wo
 LONG-TERM MEMORY of this player: name ${p.name}, a level ${p.char.level} ${classById(p.char.cls).name}; met ${mem.met} times; kills ${p.char.kills}; deaths ${p.char.deaths}. ${mem.long.join('; ')}
 Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
       const history = mem.short.slice(-8).map((s) => ({ role: (s.who === 'player' ? 'user' : 'assistant') as 'user' | 'assistant', content: s.text }));
-      const reply = parseJsonLoose<{ say?: string; mood?: string; remember?: string }>(await this.llm.ask(p.user, [{ role: 'system', content: sys }, { role: 'user', content: ctx }, ...history], { maxTokens: 220, temperature: 0.85, json: true }));
+      const reply = parseJsonLoose<{ say?: string; mood?: string; remember?: string }>(await this.llm.ask(p.user, [{ role: 'system', content: sys }, { role: 'user', content: ctx }, ...history], { maxTokens: 500, temperature: 0.85, json: true }));
       if (reply?.say) {
-        say = String(reply.say).slice(0, 420); mood = String(reply.mood ?? 'neutral').slice(0, 20); source = 'llm';
+        say = wholeSentences(String(reply.say), 420); mood = String(reply.mood ?? 'neutral').slice(0, 20); source = 'llm';
         if (reply.remember && String(reply.remember).length > 3) { mem.long.push(String(reply.remember).slice(0, 120)); if (mem.long.length > 12) mem.long.shift(); }
       }
     }

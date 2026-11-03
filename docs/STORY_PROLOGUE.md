@@ -13,7 +13,7 @@ DOS: The Hundredth Sky opens like an isekai anime: an ordinary life ends, a soul
 | **Between worlds** | A violet nebula void with stars, rising motes of light and a turning rune circle (the nine element kanji + 禁). The new body takes shape as a pale soul while the player picks a name, class and look (the create screen, over the void). | `buildVoid()`, `setSoul()`, `showCreate(true)` in `main.ts` |
 | **The Goddess** | Aurelia, a figure of light with a halo and wings, rises above the rune circle and speaks. Dialogue box with typed text and a badge: **AI · remembers you** (Gemini) or **scripted** (fallback). The player can type to her at any time. | `src/client/ui/prologue.ts`, server `src/server/core/origin.ts` |
 | 1. Past life | *"Who were you, before the light took you?"* Pick one of five or type your own. She remembers it. | step `pastlife` |
-| 2. Unique Skill (cheat) | Three of eight gifts are offered (seeded per soul, so a reload offers the same three). | step `cheat` |
+| 2. Unique Skill (cheat) | Three of eight gifts are offered (names original to DOS) (seeded per soul, so a reload offers the same three). | step `cheat` |
 | 3. Path | Confirm or change the class (7). Changing re-kits the hero server-side. | step `class` |
 | 4. Affinity | Ten orbs: Fire 火, Water 水, Wind 風, Earth 土, Lightning 雷, Light 光, Darkness 闇, Space 空, Time 時, and **FORBIDDEN 禁** (asks twice: strong, but it costs). | step `affinity` |
 | **Status window** | The anime blue holographic STATUS panel: name, race (Human · Reincarnated), class, level, adventurer rank with guild points, title, power, HP/MP/ATK/MAG/DEF/CRIT, Unique Skill, Affinity. **AWAKEN**. | `src/client/ui/status.ts` |
@@ -23,16 +23,18 @@ A soul in the prologue is in the world but **hidden**: other players do not see 
 
 ## Unique Skills (cheats)
 
-| Skill | 日本語 | Effect |
+| Skill | Kanji | Effect |
 |---|---|---|
-| Great Sage | 大賢者 | +10% crit · weaknesses hit ×1.8 instead of ×1.5 |
-| Predator | 捕食者 | 5% of damage dealt heals you · +15% XP |
-| Mana Overflow | 魔力無限 | +40% max MP · +60% mana regeneration |
-| Return by Death | 死に戻り | once every 10 min a killing blow leaves you at 30% HP |
-| Shadow Monarch | 影の君主 | 15% chance a defeated monster rises as your shadow for 30 s |
-| Sword Saint | 剣聖 | +20% attack · finishers hit twice as hard |
-| Dragon Heart | 竜の心臓 | +25% max HP · 4% HP/s regeneration out of combat |
-| Lucky Star | 幸運の星 | +30% gold · +5% crit |
+| Oracle of the Sky | 天眼 | +10% crit · weaknesses hit ×1.8 instead of ×1.5 |
+| Devourer's Hunger | 暴食 | 5% of damage dealt heals you · +15% XP |
+| Endless Wellspring | 無尽泉 | +40% max MP · +60% mana regeneration |
+| Second Dawn | 再暁 | once every 10 min a killing blow leaves you at 30% HP |
+| Eclipse Sovereign | 蝕王 | 15% chance a defeated monster rises as your thrall for 30 s |
+| Blade of a Thousand Lives | 千生剣 | +20% attack · finishers hit twice as hard |
+| Wyrmblood Heart | 竜血 | +25% max HP · 4% HP/s regeneration out of combat |
+| Fortune's Favor | 天運 | +30% gold · +5% crit |
+
+All names are original to DOS: The Hundredth Sky.
 
 ## Affinity
 

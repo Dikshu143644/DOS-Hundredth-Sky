@@ -82,6 +82,13 @@ export class GameClient {
     if (joined.zone && joined.zone !== engine.zone) void this.enterZone(joined.zone, this.me.x, this.me.z, 0, joined.weather);
   }
 
+  private brightT = 0;
+  /** Bright scenes (snow, sand, noon) get denser glass so panels stay readable. */
+  updateBright(dt: number) {
+    if ((this.brightT -= dt) > 0) return; this.brightT = 2;
+    const z = this.engine.zone, h = this.engine.hours ?? 12, day = h > 8 && h < 17;
+    document.body.classList.toggle('bright', (z === 'frozen' || z === 'desert') ? true : day && this.engine.weather !== 'storm');
+  }
   get myClass() { return classById(this.hud.char.cls); }
 
   sendPing() { this.lastPing = performance.now(); this.net.send({ type: 'ping', t: performance.now(), rtt: this.ping.rtt }); }
@@ -333,7 +340,7 @@ export class GameClient {
   loadingZone = false;
   openMap() {
     if (this.mapUi) { this.mapUi.close(); return; }
-    this.mapUi = worldMap({ state: this.mapState, level: this.self.level, send: (m) => this.net.send(m), onClose: () => { this.mapUi = null; }, toggleMinimap: () => this.hud.toggleMap() });
+    this.mapUi = worldMap({ state: this.mapState, level: this.self.level, send: (m) => this.net.send(m), onClose: () => { this.mapUi = null; }, toggleMinimap: () => this.hud.toggleMap(), me: () => ({ zone: this.engine.zone, x: this.me.x, z: this.me.z, yaw: this.cam.yaw }) });
     this.net.send({ type: 'map' });
   }
   /** Phase 4 · M2: the server moved us into another region — stream it in behind a loading veil. */
@@ -475,6 +482,7 @@ export class GameClient {
   serverNow() { return performance.now() / 1000 + this.serverTimeOffset; }
 
   update(dt: number) {
+    this.updateBright(dt);
     const now = performance.now() / 1000;
     if (now * 1000 - this.lastPing > 1000) this.sendPing();
     if (this.loadingZone) { this.input.consumeLook(); return; }

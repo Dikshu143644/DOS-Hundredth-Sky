@@ -4,6 +4,7 @@ import { CLASSES } from '../../shared/combat';
 import { statusWindow } from './status';
 import type { Prologue } from '../scenes/prologue';
 import { audio } from '../audio';
+import { icon, CHEAT_ICON } from './icons';
 
 type ProMsg = Extract<S2C, { type: 'prologue' }>;
 const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -28,11 +29,14 @@ export function runGoddess(o: { send: (m: C2S) => void; wait: <T extends S2C['ty
     const say = (m: ProMsg) => {
       src.textContent = m.source === 'llm' ? 'AI · remembers you' : 'scripted';
       src.className = 'pro-src ' + m.source;
-      clearInterval(typing); text.textContent = ''; let i = 0;
-      typing = window.setInterval(() => { text.textContent = m.say.slice(0, ++i); if (i >= m.say.length) clearInterval(typing); }, 22);
+      clearInterval(typing); text.textContent = ''; text.dataset.done = ''; let i = 0;
+      const full = m.say;
+      const end = () => { clearInterval(typing); text.textContent = full; text.dataset.done = '1'; text.scrollTop = text.scrollHeight; };
+      typing = window.setInterval(() => { text.textContent = full.slice(0, ++i); text.scrollTop = text.scrollHeight; if (i >= full.length) end(); }, 20);
+      text.onclick = end;
       audio.goddess();
     };
-    const thinking = () => { clearInterval(typing); text.innerHTML = '<span class="pro-dots"><i></i><i></i><i></i></span>'; };
+    const thinking = () => { clearInterval(typing); text.dataset.done = ''; text.innerHTML = '<span class="pro-dots"><i></i><i></i><i></i></span>'; };
     const ask = async (m: C2S): Promise<ProMsg> => { busy = true; thinking(); const p = o.wait('prologue'); o.send(m); const r = await p; busy = false; say(r); return r; };
     const finish = async () => {
       if (done) return; done = true;
@@ -62,12 +66,12 @@ export function runGoddess(o: { send: (m: C2S) => void; wait: <T extends S2C['ty
     };
     const cheats = (offer: string[]) => {
       step = 'cheat';
-      choices.innerHTML = `<div class="pro-h">Choose your Unique Skill <small>— a cheat no other soul has</small></div><div class="pro-cards">${offer.map((id) => { const c = CHEATS.find((x) => x.id === id)!; return `<button class="pro-card" data-v="${id}"><span class="jp">${c.jp}</span><b>${esc(c.name)}</b><p>${esc(c.desc)}</p><small>${esc(c.effect)}</small></button>`; }).join('')}</div>`;
+      choices.innerHTML = `<div class="pro-h">Choose your Unique Skill <small>— a cheat no other soul has</small></div><div class="pro-cards">${offer.map((id) => { const c = CHEATS.find((x) => x.id === id)!; return `<button class="pro-card" data-v="${id}"><div class="pc-top"><span class="ico">${icon(CHEAT_ICON[id])}</span><span class="jp">${c.jp}</span></div><b>${esc(c.name)}</b><p>${esc(c.desc)}</p><small>${esc(c.effect)}</small></button>`; }).join('')}</div>`;
       choices.querySelectorAll<HTMLElement>('.pro-card').forEach((b) => b.onclick = async () => { if (busy) return; choices.innerHTML = ''; await ask({ type: 'prologue', step: 'cheat', value: b.dataset.v! }); classes(); });
     };
     const classes = () => {
       step = 'class';
-      choices.innerHTML = `<div class="pro-h">Your path beneath the Tower</div><div class="pro-classes">${CLASSES.map((c) => `<button class="pro-cls ${c.id === o.cls ? 'on' : ''}" data-v="${c.id}"><b>${esc(c.name)}</b><small>${esc(c.role)}</small></button>`).join('')}</div>`;
+      choices.innerHTML = `<div class="pro-h">Your path beneath the Tower</div><div class="pro-classes">${CLASSES.map((c) => `<button class="pro-cls ${c.id === o.cls ? 'on' : ''}" data-v="${c.id}"><span class="ico">${icon(c.id)}</span><b>${esc(c.name)}</b><small>${esc(c.role)}</small></button>`).join('')}</div>`;
       choices.querySelectorAll<HTMLElement>('.pro-cls').forEach((b) => b.onclick = async () => { if (busy) return; choices.innerHTML = ''; o.cls = b.dataset.v!; await ask({ type: 'prologue', step: 'class', value: o.cls }); affinity(); });
     };
     const affinity = () => {

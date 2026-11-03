@@ -16,7 +16,7 @@ const { browser, page, errors } = await launch({ viewport: { width: 1600, height
 const g = (fn, a) => page.evaluate(fn, a);
 const shot = (n) => page.screenshot({ path: path.join(out, n), type: 'jpeg', quality: 82 });
 const chat = async (t) => { await g((t) => window.__dos.game.net.send({ type: 'chat', text: t }), t); await page.waitForTimeout(900); };
-const goddessSays = async () => { await page.waitForFunction(() => { const t = document.querySelector('.pro-text'); return t && t.textContent.length > 20 && !t.querySelector('.pro-dots'); }, null, { timeout: 30000 }); await page.waitForTimeout(2500); };
+const goddessSays = async () => { await page.waitForFunction(() => { const t = document.querySelector('.pro-text'); return t && t.dataset.done === '1' && t.textContent.length > 20; }, null, { timeout: 40000 }); const t = await g(() => document.querySelector('.pro-text').textContent); if (!/[.!?…"”’)]$/.test(t.trim())) await fail('goddess line ends mid-sentence: ' + t); await page.waitForTimeout(600); };
 try {
   await page.goto(`${base}/?autotest=1&quality=${process.env.Q || 'medium'}`, { waitUntil: 'load' });
   await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 60000 });
@@ -40,7 +40,7 @@ try {
   // Act II: the Goddess
   await page.waitForSelector('#prologue .pro-opt', { timeout: 40000 });
   await goddessSays(); await shot('pro_3_goddess.jpg');
-  step('Aurelia speaks: ' + (await g(() => document.querySelector('.pro-text').textContent)).slice(0, 90));
+  step('Aurelia speaks [' + (await g(() => document.querySelector('.pro-src').textContent)) + ']: ' + (await g(() => document.querySelector('.pro-text').textContent)).slice(0, 160));
   await page.click('#prologue .pro-opt');
   await page.waitForSelector('#prologue .pro-card', { timeout: 30000 });
   await goddessSays(); await shot('pro_4_cheats.jpg');

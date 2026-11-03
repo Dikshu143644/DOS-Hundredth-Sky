@@ -59,16 +59,24 @@ try {
   }
   // 3) attune a shrine in the forest, fast-travel back to the Capital and then to it
   await chat('/zone forest'); await waitZone('forest');
+  if (await page.$('.death')) { step('(the hero had fallen in the last region, rising first)'); await g(() => window.__dos.game.net.send({ type: 'respawn' })); await page.waitForTimeout(3000); await chat('/zone forest'); await waitZone('forest'); }
   await chat('/tp shrine_elderwood'); await page.waitForTimeout(2500);
-  const attuned = await g(() => window.__dos.game.mapState.attuned);
+  let attuned = await g(() => window.__dos.game.mapState.attuned);
+  if (!attuned.includes('forest:elderwood')) {
+    const st = await g(() => { const G = window.__dos.game; return { me: [Math.round(G.me.x), Math.round(G.me.z)], hp: G.me.hp, dead: G.me.dead, zone: G.engine.zone, log: [...document.querySelectorAll('.chat .log div')].slice(-5).map((e) => e.textContent) }; });
+    await chat('/where'); await page.waitForTimeout(600);
+    step('first tp did not attune: ' + JSON.stringify(st) + ' server says: ' + await g(() => [...document.querySelectorAll('.chat .log div')].slice(-1)[0]?.textContent));
+    await page.waitForTimeout(6000); await chat('/tp shrine_elderwood'); await page.waitForTimeout(2500);
+    attuned = await g(() => window.__dos.game.mapState.attuned);
+  }
   if (!attuned.includes('forest:elderwood')) fail('shrine not attuned: ' + attuned.join(','));
-  await page.keyboard.press('KeyM'); await page.waitForSelector('#worldmap .wm-node', { timeout: 5000 }); await page.waitForTimeout(500);
+  await page.keyboard.press('KeyM'); await page.waitForSelector('#worldmap .wm-region', { timeout: 15000 }); await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(out, 'm2_worldmap.jpg'), quality: 85 });
-  await page.click('#worldmap [data-go="capital:dawn"]');
+  await page.click('#worldmap .wm-side [data-go="capital:dawn"]');
   await waitZone('capital');
   step('attuned Elderwood Shrine, fast-travelled to the Shrine of Dawn via the world map');
-  await page.keyboard.press('KeyM'); await page.waitForSelector('#worldmap [data-go="forest:elderwood"]');
-  await page.click('#worldmap [data-go="forest:elderwood"]');
+  await page.keyboard.press('KeyM'); await page.waitForSelector('#worldmap .wm-side [data-go="forest:elderwood"]');
+  await page.click('#worldmap .wm-side [data-go="forest:elderwood"]');
   await waitZone('forest');
   step('and back to the forest shrine');
   const errs = errors.filter((e) => !/favicon|404|WebGL|GPU stall|swiftshader/i.test(e));

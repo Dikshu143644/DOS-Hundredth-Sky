@@ -6,15 +6,18 @@ import type { Element, Stats } from './combat';
 
 export interface CheatDef { id: string; name: string; jp: string; desc: string; effect: string }
 export const CHEATS: CheatDef[] = [
-  { id: 'great_sage', name: 'Great Sage', jp: '大賢者', desc: 'A voice in your mind that analyses everything.', effect: '+10% critical chance · weaknesses hit for ×1.8 instead of ×1.5' },
-  { id: 'predator', name: 'Predator', jp: '捕食者', desc: 'You grow by devouring the strength of what you defeat.', effect: '5% of all damage dealt heals you · +15% XP' },
-  { id: 'mana_overflow', name: 'Mana Overflow', jp: '魔力無限', desc: 'Your soul is a well that never runs dry.', effect: '+40% max MP · +60% mana regeneration' },
-  { id: 'return_by_death', name: 'Return by Death', jp: '死に戻り', desc: 'Death cannot keep you. Not the first time.', effect: 'Once every 10 minutes a killing blow leaves you at 30% HP instead' },
-  { id: 'shadow_monarch', name: 'Shadow Monarch', jp: '影の君主', desc: 'The fallen rise again, and they kneel to you.', effect: '15% chance to raise a defeated monster as your shadow for 30 s' },
-  { id: 'sword_saint', name: 'Sword Saint', jp: '剣聖', desc: 'Your body remembers ten thousand battles you never fought.', effect: '+20% attack · basic-attack finishers hit twice as hard' },
-  { id: 'dragon_heart', name: 'Dragon Heart', jp: '竜の心臓', desc: 'A dragon’s heart beats in your chest.', effect: '+25% max HP · regenerate 1.5% HP/s out of combat' },
-  { id: 'lucky_star', name: 'Lucky Star', jp: '幸運の星', desc: 'Fate itself leans your way.', effect: '+30% gold · double chance for rare drops · +5% crit' },
+  { id: 'sky_oracle', name: 'Oracle of the Sky', jp: '天眼', desc: 'A second sight that reads every foe like an open book.', effect: '+10% critical chance · weaknesses hit for ×1.8 instead of ×1.5' },
+  { id: 'devourer', name: 'Devourer’s Hunger', jp: '暴食', desc: 'You grow by consuming the strength of what you defeat.', effect: '5% of all damage dealt heals you · +15% XP' },
+  { id: 'endless_well', name: 'Endless Wellspring', jp: '無尽泉', desc: 'Your soul is a spring that never runs dry.', effect: '+40% max MP · +60% mana regeneration' },
+  { id: 'second_dawn', name: 'Second Dawn', jp: '再暁', desc: 'Death cannot keep you. Not the first time.', effect: 'Once every 10 minutes a killing blow leaves you at 30% HP instead' },
+  { id: 'eclipse_sovereign', name: 'Eclipse Sovereign', jp: '蝕王', desc: 'The fallen rise again, and they kneel to you.', effect: '15% chance to raise a defeated monster as your thrall for 30 s' },
+  { id: 'thousand_blades', name: 'Blade of a Thousand Lives', jp: '千生剣', desc: 'Your body remembers battles from lives you never lived.', effect: '+20% attack · basic-attack finishers hit twice as hard' },
+  { id: 'wyrmblood', name: 'Wyrmblood Heart', jp: '竜血', desc: 'Ancient wyrm blood beats in your chest.', effect: '+25% max HP · regenerate 4% HP/s out of combat' },
+  { id: 'fortunes_favor', name: 'Fortune’s Favor', jp: '天運', desc: 'Fate itself leans your way.', effect: '+30% gold · +5% crit' },
 ];
+/** Saves from before the Unique Skills got their own names. */
+const LEGACY_CHEATS: Record<string, string> = { great_sage: 'sky_oracle', predator: 'devourer', mana_overflow: 'endless_well', return_by_death: 'second_dawn', shadow_monarch: 'eclipse_sovereign', sword_saint: 'thousand_blades', dragon_heart: 'wyrmblood', lucky_star: 'fortunes_favor' };
+export const migrateCheat = (id?: string | null) => (id && LEGACY_CHEATS[id]) || id || undefined;
 export const cheatById = (id?: string | null) => CHEATS.find((c) => c.id === id);
 /** The three gifts the Goddess offers this soul (seeded, so a reload offers the same three). */
 export function cheatOffer(seed: string): string[] {

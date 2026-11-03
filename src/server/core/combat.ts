@@ -362,12 +362,12 @@ export class Combat {
     if (dp && now < (dp.weakUntil ?? 0)) mul *= 1.1; // soul-weary takes more damage
     if (src.type === 'p' || src.type === 'b') { if (now < ((src as Player).weakUntil ?? 0)) mul *= 0.85; }
     if (src.type === 'm' && (src as Monster).enraged) mul *= 1.35;
-    // reincarnation: elemental affinity (+15 % dealt / −15 % taken), Great Sage weakness ×1.8, Sword Saint finishers
+    // reincarnation: elemental affinity (+15 % dealt / −15 % taken), Oracle of the Sky weakness ×1.8, Blade of a Thousand Lives finishers
     const so = sp?.char.origin, dso = dp?.char.origin;
     if (so?.affinity && (so.affinity === element || (so.affinity === 'forbidden' && o.skill?.chaos))) mul *= 1 + AFFINITY_BONUS;
     if (dso?.affinity && dso.affinity === element) mul *= 1 - AFFINITY_BONUS;
-    if (so?.cheat === 'great_sage' && weakTo && weakTo === element) mul *= 1.2;
-    if (so?.cheat === 'sword_saint' && o.basic && sp && sp.combo.n % 3 === 0) mul *= 1.5;
+    if (so?.cheat === 'sky_oracle' && weakTo && weakTo === element) mul *= 1.2;
+    if (so?.cheat === 'thousand_blades' && o.basic && sp && sp.combo.n % 3 === 0) mul *= 1.5;
     const r = computeDamage({ atk, power: power * mul, def, element, weakTo, roll: this.g.rand(), critRoll: o.dot ? 1 : this.g.rand(), critChance });
     let dmg = r.dmg;
     // shields absorb first
@@ -376,7 +376,7 @@ export class Combat {
     if (dst.anim !== 'cast' && !o.dot) { dst.anim = 'hit'; dst.animUntil = now + 0.3; }
     this.g.broadcastNear(dst.s.x, dst.s.z, 150, { type: 'fx', kind: 'hit', src: src.id, dst: dst.id, amount: dmg, crit: r.crit, weak: r.weak, x: dst.s.x, y: dst.s.y + 2.1, z: dst.s.z, spell: o.dot ? 'dot' : o.skill?.id });
     // lifesteal
-    if (sp) { const ls = this.buffSum(sp, 'lifesteal', now) + (sp.char.origin?.cheat === 'predator' ? 0.05 : 0); if (ls > 0 && !o.dot) sp.hp = Math.min(sp.mhp, sp.hp + dmg * ls); }
+    if (sp) { const ls = this.buffSum(sp, 'lifesteal', now) + (sp.char.origin?.cheat === 'devourer' ? 0.05 : 0); if (ls > 0 && !o.dot) sp.hp = Math.min(sp.mhp, sp.hp + dmg * ls); }
     if (isMon) {
       const m = dst as Monster;
       const credit = sp ?? src;

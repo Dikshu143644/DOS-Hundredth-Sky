@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeLlm } from '../../src/server/llmclient';
-import { LlmGate } from '../../src/server/core/llm';
+import { LlmGate, parseJsonLoose, wholeSentences } from '../../src/server/core/llm';
 
 const ok = (text: string) => new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200 });
 describe('live LLM client (Gemini, OpenAI-compatible)', () => {
@@ -26,5 +26,13 @@ describe('live LLM client (Gemini, OpenAI-compatible)', () => {
     const gate = new LlmGate(async () => { n++; return 'ok'; }, () => 0);
     await gate.ask('u', [{ role: 'user', content: 'same' }]); await gate.ask('u', [{ role: 'user', content: 'same' }]);
     expect(n).toBe(1); expect(gate.cached).toBe(1);
+  });
+  it('never shows a line cut mid-word', () => {
+    expect(wholeSentences('Choose freely. Though I would not touch the forbid', 420)).toBe('Choose freely.');
+    expect(wholeSentences('A whole line.', 420)).toBe('A whole line.');
+    expect(wholeSentences('no sentence end at all here', 420)).toMatch(/…$/);
+    // a reply cut off by the token limit: salvage the complete sentences
+    expect(parseJsonLoose<{ say: string }>('{"say": "Welcome, little soul. Your tide rises to swee')!.say).toBe('Welcome, little soul.');
+    expect(parseJsonLoose('{"say": "no full sentence yet and cut')).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { CHEATS, cheatOffer, cheatById, AFFINITIES, findFusion, fusionSlots, ADV_RANKS, RANK_PTS, rankFor, INJURIES, powerScore, type Affinity } from '../../shared/origin';
 import { CLASSES, classById, type ClassId } from '../../shared/combat';
 import { REGIONS } from '../../shared/regions';
-import { parseJsonLoose } from './llm';
+import { parseJsonLoose, wholeSentences } from './llm';
 import type { Game, Player, Monster, Ent, CharRecord } from './game';
 
 const GODDESS = {
@@ -36,8 +36,8 @@ export class Origin {
       const ctx = `Moment: ${step}. The soul's name in the new world: ${ch.name}. What they told you of their past life: "${s.pastLife || 'nothing yet'}". Gift chosen: ${s.cheatName ?? 'not yet'}. Path: ${s.className}. Element: ${s.affinityName ?? 'not yet'}. Things you remember about them: ${notes || 'nothing yet'}.
 ${said ? `They just said to you: "${said}"` : ''}
 Your line should do this: ${step === 'talk' ? 'answer what they just said in character (warmly, briefly), then gently remind them to make the choice in front of them.' : LINES[step]?.(s) ?? 'answer them kindly.'}`;
-      const r = parseJsonLoose<{ say?: string }>(await this.g.llm.ask(p.user, [{ role: 'system', content: GODDESS.sys }, { role: 'user', content: ctx }], { maxTokens: 220, temperature: 0.9, json: true }));
-      if (r?.say) { say = String(r.say).slice(0, 360); source = 'llm'; }
+      const r = parseJsonLoose<{ say?: string }>(await this.g.llm.ask(p.user, [{ role: 'system', content: GODDESS.sys }, { role: 'user', content: ctx }], { maxTokens: 500, temperature: 0.9, json: true }));
+      if (r?.say) { say = wholeSentences(String(r.say), 420); source = 'llm'; }
     }
     p.conn?.send({ type: 'prologue', step, say, source, state: this.state(ch), offer: step === 'pastlife' ? cheatOffer(ch.id) : undefined } as any);
   }
@@ -133,22 +133,22 @@ Your line should do this: ${step === 'talk' ? 'answer what they just said in cha
     const gap = m.def.level - p.char.level;
     this.addPts(p, m.def.boss ? 60 + Math.max(0, gap) * 4 : gap >= -5 ? 1 + Math.max(0, gap) : 0, 'kill');
     const cheat = p.char.origin?.cheat;
-    if (cheat === 'lucky_star') p.char.gold += Math.round((m.def.gold ?? 5) * 0.3);
-    if (cheat === 'shadow_monarch' && !m.def.boss && this.g.rand() < 0.15) {
+    if (cheat === 'fortunes_favor') p.char.gold += Math.round((m.def.gold ?? 5) * 0.3);
+    if (cheat === 'eclipse_sovereign' && !m.def.boss && this.g.rand() < 0.15) {
       const s = this.g.combat.spawnSummon(p, 'wolf', 30, 1.0 + p.char.level * 0.02, now);
-      if (s) s.name = `Shadow ${m.def.name}`;
-      p.conn?.send({ type: 'notice', text: `ARISE. ${m.def.name} kneels as your shadow.`, style: 'rank' });
+      if (s) s.name = `Thrall ${m.def.name}`;
+      p.conn?.send({ type: 'notice', text: `The eclipse claims ${m.def.name}. It kneels as your thrall.`, style: 'rank' });
     }
   }
-  /** Return by Death: once per 10 min a killing blow is refused. */
+  /** Second Dawn: once per 10 min a killing blow is refused. */
   rewind(p: Player, now: number): boolean {
-    if (p.type !== 'p' || p.char.origin?.cheat !== 'return_by_death') return false;
+    if (p.type !== 'p' || p.char.origin?.cheat !== 'second_dawn') return false;
     const o = p.char.origin!;
     if (Date.now() < (o.rewindAt ?? 0)) return false;
     o.rewindAt = Date.now() + 10 * 60_000;
     p.hp = Math.round(p.mhp * 0.3); p.dead = false;
-    this.g.broadcastNear(p.s.x, p.s.z, 150, { type: 'fx', kind: 'react', dst: p.id, x: p.s.x, y: p.s.y + 2.6, z: p.s.z, text: 'RETURN BY DEATH' });
-    p.conn?.send({ type: 'notice', text: 'The world rewinds. You are still alive. (Return by Death: ready again in 10 min)', style: 'rank' });
+    this.g.broadcastNear(p.s.x, p.s.z, 150, { type: 'fx', kind: 'react', dst: p.id, x: p.s.x, y: p.s.y + 2.6, z: p.s.z, text: 'SECOND DAWN' });
+    p.conn?.send({ type: 'notice', text: 'The world rewinds. You are still alive. (Second Dawn: ready again in 10 min)', style: 'rank' });
     void now; return true;
   }
   /** The real stakes of falling (on top of XP/gold loss): rank points, a lasting injury, maybe an item, and people remember. */

@@ -1,3 +1,4 @@
+import { icon } from './icons';
 import { audio } from '../audio';
 
 /** Title / main menu in Omkar's reference style: ivory-gold serif "DOS" with a four-point star in
@@ -10,7 +11,8 @@ const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0 L14.2 9
 const GEAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm8.2 4.7-1.9-.3a6.6 6.6 0 0 1-.7 1.6l1.1 1.6-1.5 1.5-1.6-1.1c-.5.3-1 .5-1.6.7l-.3 1.9h-2.2l-.3-1.9a6.6 6.6 0 0 1-1.6-.7l-1.6 1.1-1.5-1.5 1.1-1.6a6.6 6.6 0 0 1-.7-1.6l-1.9-.3v-2.2l1.9-.3c.2-.6.4-1.1.7-1.6L6.3 6.4l1.5-1.5 1.6 1.1c.5-.3 1-.5 1.6-.7l.3-1.9h2.2l.3 1.9c.6.2 1.1.4 1.6.7l1.6-1.1 1.5 1.5-1.1 1.6c.3.5.5 1 .7 1.6l1.9.3Z"/></svg>';
 const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21Z"/></svg>';
 const BOLT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.5 1 4 13.6h6.3L9 23l10-13.2h-6.4L13.5 1Z"/></svg>';
-const DIAMOND = (filled: boolean) => `<svg class="dia" viewBox="0 0 24 24" aria-hidden="true">${filled ? '<path d="M12 1 23 12 12 23 1 12Z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M12 5.5 13.4 10.6 18.5 12 13.4 13.4 12 18.5 10.6 13.4 5.5 12 10.6 10.6Z" fill="currentColor"/>' : '<path d="M12 3 21 12 12 21 3 12Z" fill="none" stroke="currentColor" stroke-width="1.3"/>'}</svg>`;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const DIAMOND = (filled: boolean) => `<svg class="dia" viewBox="0 0 24 24" aria-hidden="true">${filled ? '<path d="M12 1 23 12 12 23 1 12Z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M12 5.5 13.4 10.6 18.5 12 13.4 13.4 12 18.5 10.6 13.4 5.5 12 10.6 10.6Z" fill="currentColor"/>' : '<path d="M12 3 21 12 12 21 3 12Z" fill="none" stroke="currentColor" stroke-width="1.3"/>'}</svg>`;
 
 export function titleMenu(o: MenuOpts) {
   document.getElementById('menu')?.remove();
@@ -27,10 +29,10 @@ export function titleMenu(o: MenuOpts) {
     </div>
     <button class="tm-gear" data-act="settings" aria-label="Settings">${GEAR}</button>
     <nav class="tm-nav" aria-label="Main menu">
-      <button class="tm-item on" data-act="continue">${DIAMOND(true)}<span>Continue</span></button>
-      <button class="tm-item" data-act="newgame">${DIAMOND(false)}<span>New Game</span></button>
-      <button class="tm-item" data-act="settings">${DIAMOND(false)}<span>Settings</span></button>
-      <button class="tm-item" data-act="quit">${DIAMOND(false)}<span>${o.signedIn ? 'Quit' : 'Quit'}</span></button>
+      <button class="tm-item on" data-act="continue"><i class="dia">${icon('play', 18)}</i><span>Continue</span></button>
+      <button class="tm-item" data-act="newgame"><i class="dia">${icon('plus', 18)}</i><span>New Game</span></button>
+      <button class="tm-item" data-act="settings"><i class="dia">${icon('settings', 18)}</i><span>Settings</span></button>
+      <button class="tm-item" data-act="quit"><i class="dia">${icon('logout', 18)}</i><span>Quit</span></button>
     </nav>
     <div class="tm-bars">
       ${h ? `<div class="tm-who">${h.name.replace(/[<>&"]/g, '')}</div>` : ''}
