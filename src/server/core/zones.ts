@@ -1,6 +1,7 @@
 import { REGIONS, ZONE_IDS, arrivalFor, type ZoneId } from '../../shared/regions';
 import { setActiveZone, withZone, heightAt, ZONE, POIS } from '../../shared/world';
 import { newCharState } from '../../shared/physics';
+import { floorOf } from '../../shared/tower';
 import type { Game, Player } from './game';
 
 const CAPITAL_CAMPS: { kinds: string[]; x: number; z: number; n: number }[] = [
@@ -50,6 +51,8 @@ export class Zones {
   tickPlayer(p: Player, now: number) {
     this.lastSeen[p.zone] = now;
     if (p.dead || p.type !== 'p') return;
+    if (floorOf(p.zone)) { this.g.tower.tickPlayer(p, now); return; }
+    if (p.zone === 'tower') this.g.tower.gateCheck(p, now);
     const r = REGIONS[p.zone as ZoneId];
     if (!r) return;
     for (const e of r.exits) {

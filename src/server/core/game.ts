@@ -15,7 +15,9 @@ import { InputBudget } from '../../shared/netcode';
 import { NPCS, NpcDef, npcByKey } from './npcdefs';
 import { QuestSys } from './questsys';
 import { Market } from './market';
-import { rollDrops } from '../../shared/economy'; // also registers the M4 items
+import { rollDrops } from '../../shared/economy';
+import { TowerSys } from './tower';
+import { floorOf, floorPlan } from '../../shared/tower'; // also registers the M4 items
 import { scheduleAt } from '../../shared/npcai';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
 import { LlmGate, LlmFn, parseJsonLoose, wholeSentences } from './llm';
@@ -106,6 +108,7 @@ export class Game {
   origin!: Origin;
   quests!: QuestSys;
   market!: Market;
+  tower!: TowerSys;
   onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
@@ -124,6 +127,7 @@ export class Game {
     this.origin = new Origin(this);
     this.quests = new QuestSys(this);
     this.market = new Market(this);
+    this.tower = new TowerSys(this);
     for (const z of ZONE_IDS) withZone(z, () => buildZone());
     setActiveZone('capital');
     this.zones.spawnAll();
@@ -244,6 +248,9 @@ export class Game {
       case 'fuse': this.origin.fuse(p, String((m as any).a), String((m as any).b)); return;
       case 'status': this.origin.sendStatus(p); return;
       case 'leaderboard': this.origin.leaderboard(p); return;
+      case 'towerBoard': this.tower.leaderboard(p); return;
+      case 'towerEnter': this.tower.enter(p, Number((m as any).floor), now); return;
+      case 'towerGate': if (p.zone === 'tower') this.tower.sendGate(p); return;
       case 'board': this.quests.sendBoard(p); return;
       case 'craft': this.market.craft(p, String((m as any).recipe)); return;
       case 'enchant': this.market.enchant(p, String((m as any).item)); return;
@@ -303,7 +310,12 @@ export class Game {
     if (!this.o.dev) return sys('Commands: /who, /where');
     if (cmd === 'time') { const h = clamp(Number(arg), 0, 24); this.worldTime = h; return sys(`World time set to ${h}:00.`); }
     if (cmd === 'weather' && arg) { this.zones.weather[p.zone] = { w: arg, until: this.o.now() + 600 }; return sys(`Weather: ${arg}.`); }
+    if (cmd === 'floor') { const n = Math.max(1, Math.min(100, Number(arg) || 1)); p.char.counters.towerBest = Math.max(p.char.counters.towerBest ?? 0, n - 1); this.tower.go(p, n); return; }
+    if (cmd === 'gate') { this.zones.move(p, 'tower', 0, -160, Math.PI, 'Gate of the Tower'); return; }
     if (cmd === 'zone' && arg && arg in REGIONS) { const r = REGIONS[arg as 'capital']; this.zones.move(p, r.id, r.spawn.x, r.spawn.z, r.spawn.yaw, r.name); return; }
+    if (cmd === 'tpxy') { const [x, z] = String(text.slice(1).split(/\s+/).slice(1, 3).join(' ')).split(' ').map(Number); if (Number.isFinite(x) && Number.isFinite(z)) withZone(p.zone, () => { p.s = newCharState(x, z, p.s.yaw); p.inputs.length = 0; }); return; }
+    if (cmd === 'solve' && floorOf(p.zone)) { this.tower.ensure(floorOf(p.zone)); this.tower.open(floorOf(p.zone), '(dev)'); return; }
+    if (cmd === 'room' && floorOf(p.zone)) { const P = floorPlan(floorOf(p.zone)); const r = arg === 'stairs' ? P.stairs : arg === 'gate' ? P.gate : P.start; withZone(p.zone, () => { p.s = newCharState(r.x + 3, r.z + 6, Math.PI); p.inputs.length = 0; }); return; }
     if (cmd === 'boss') { const r = REGIONS[p.zone as 'capital']; p.s = newCharState(r.boss.x + 14, r.boss.z + 14, p.s.yaw); p.inputs.length = 0; return; }
     if (cmd === 'tp') { withZone(p.zone, () => { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } }); return; }
     if (cmd === 'goto') { const n = [...this.ents.values()].find((e) => e.type === 'n' && (e as Npc).def.key === arg) as Npc | undefined; if (n) { if (n.zone !== p.zone) this.zones.move(p, n.zone as any, n.s.x + 1.6, n.s.z + 1.6, p.s.yaw, REGIONS[n.zone as 'capital'].name); else withZone(p.zone, () => { p.s = newCharState(n.s.x + 1.6, n.s.z + 1.6, p.s.yaw); p.inputs.length = 0; }); } return; }
@@ -405,7 +417,8 @@ export class Game {
     this.zones.tickWeather(now);
     this.weather = this.zones.weatherOf('capital') as any;
     // Phase 4: tick zone by zone with that zone's geometry active
-    for (const z of ZONE_IDS) {
+    this.tower.tick(now);
+    for (const z of [...ZONE_IDS, ...this.tower.liveZones()]) {
       setActiveZone(z);
       for (const p of this.players.values()) if (p.zone === z) { this.tickPlayer(p, now, dt); if (p.zone === z) this.zones.tickPlayer(p, now); }
       if (!this.zones.active(z)) continue;
@@ -549,7 +562,7 @@ export class Game {
     }
   }
   /** hook for later systems (world bosses, tower, quests) */
-  onMonsterKilled(m: Monster, killer: Ent, now: number) { this.origin.onKill(m, killer, now); }
+  onMonsterKilled(m: Monster, killer: Ent, now: number) { this.origin.onKill(m, killer, now); this.tower.onKill(m); }
 
   /** Where a fallen player comes back (the last shrine they touched). */
   shrineName(p: Player) { return this.zones.bindPos(p).name; }
@@ -574,6 +587,7 @@ export class Game {
     p.conn?.send({ type: 'notice', text: 'You were revived!', style: 'levelup' });
   }
 
+  giveXpPublic(p: Player, amount: number) { this.giveXp(p, amount); }
   private giveXp(p: Player, amount: number) {
     if (p.char.origin?.cheat === 'devourer') amount *= 1.15;
     const before = p.char.level;

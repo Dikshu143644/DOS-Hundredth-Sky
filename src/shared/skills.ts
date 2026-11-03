@@ -173,6 +173,10 @@ export const TITLES: TitleDef[] = [
   { id: 'weapon_master', name: 'Weapon Master', desc: 'Reach mastery 10 with a weapon.' },
   { id: 'friend_capital', name: 'Friend of the Capital', desc: 'Reach Honored with the Capital.' },
   { id: 'climber', name: 'Climber', desc: 'Clear floor 10 of the Hundredth Tower.' },
+  { id: 'tower_30', name: 'Forgewalker', desc: 'Clear floor 30 of the Hundredth Tower.' },
+  { id: 'tower_50', name: 'Halfway to the Sky', desc: 'Clear floor 50 of the Hundredth Tower.' },
+  { id: 'tower_80', name: 'Keeper of Hours', desc: 'Clear floor 80 of the Hundredth Tower.' },
+  { id: 'tower_100', name: 'The Hundredth Sky', desc: 'Stand on the summit of the Hundredth Tower.' },
   { id: 'storm_caller', name: 'Storm-Caller', desc: 'Cast lightning in a storm.' },
   { id: 'elementalist', name: 'Elementalist', desc: 'Trigger 10 elemental combos.' },
 ];

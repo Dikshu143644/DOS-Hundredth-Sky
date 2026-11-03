@@ -208,6 +208,8 @@ export function makeGenZone(r: RegionDef): GenZone {
       const g = height(e.x, e.z), tx = Math.abs(e.x) > Math.abs(e.z) ? 0 : 1, tz = 1 - tx;
       for (const sgn of [-1, 1]) colliders.push({ kind: 'cyl', x: e.x + tx * sgn * 5, z: e.z + tz * sgn * 5, r: 0.9, y0: g - 2, y1: g + 9, tag: 'gate' });
     }
+    // Phase 4 · M5: the Gate of the Tower (two pillars; walking between them opens the floor picker)
+    if (r.id === 'tower') for (const sgn of [-1, 1]) { const g = height(sgn * 5, -168); colliders.push({ kind: 'cyl', x: sgn * 5, z: -168, r: 0.9, y0: g - 2, y1: g + 9, tag: 'gate' }); }
     // POI ruins: pillar rings
     for (const p of r.pois) {
       const n = 8 + Math.floor(rnd() * 5);

@@ -55,26 +55,43 @@ export function statusWindow(o: { s: StatusView; send?: (m: C2S) => void; onClos
   return { el: d, close, update(ns: StatusView) { s = ns; render(); }, onWake(fn: () => void) { d.querySelector('[data-wake]')?.addEventListener('click', fn); } };
 }
 
-/** Rankings (L): your adventurer rank + the global power leaderboard. */
-export function rankingsPanel(o: { onClose: () => void }) {
+/** Rankings (L): your adventurer rank + the global power leaderboard, and the Tower's highest floors. */
+type PowerBoard = { rows: { name: string; cls: string; level: number; rank: string; power: number; me: boolean }[]; place: number; total: number };
+type TowerBoard = { rows: { name: string; cls: string; level: number; floor: number; me: boolean }[]; place: number; total: number; best: number };
+export function rankingsPanel(o: { onClose: () => void; send?: (m: any) => void; tab?: 'power' | 'tower' }) {
   const d = document.createElement('div');
   d.className = 'modal inv-modal'; d.id = 'rankings';
   document.getElementById('ui')!.appendChild(d);
   const close = () => { d.remove(); window.removeEventListener('keydown', key, true); o.onClose(); };
   const key = (e: KeyboardEvent) => { if (e.code === 'Escape' || e.code === 'KeyL') { e.preventDefault(); e.stopPropagation(); close(); } };
   window.addEventListener('keydown', key, true);
-  d.innerHTML = '<div class="inv-box rk-box"><div class="inv-head"><div class="t">RANKINGS</div><button class="x" data-close>✕</button></div><p style="padding:20px">Consulting the Guild…</p></div>';
-  d.querySelector('[data-close]')!.addEventListener('click', close);
-  return {
-    close,
-    update(m: { rows: { name: string; cls: string; level: number; rank: string; power: number; me: boolean }[]; place: number; total: number }) {
-      d.innerHTML = `<div class="inv-box rk-box"><div class="inv-head"><div class="t">RANKINGS</div><button class="x" data-close>✕</button></div>
-        <div class="rk-body"><div class="rk-ranks">${ADV_RANKS.map((r, i) => `<span class="st-rank r${i}">${r}</span>`).join('<i>›</i>')}</div>
+  let tab: 'power' | 'tower' = o.tab ?? 'power', power: PowerBoard | null = null, tower: TowerBoard | null = null;
+  const head = () => `<div class="inv-head"><div class="t">RANKINGS</div><button class="x" data-close>✕</button></div>
+    <div class="mk-tabs"><div class="seg"><button class="${tab === 'power' ? 'on' : ''}" data-tab="power">Power</button><button class="${tab === 'tower' ? 'on' : ''}" data-tab="tower">Hundredth Tower</button></div></div>`;
+  const render = () => {
+    let body = '<p style="padding:20px">Consulting the Guild…</p>';
+    if (tab === 'power' && power) {
+      const m = power;
+      body = `<div class="rk-body"><div class="rk-ranks">${ADV_RANKS.map((r, i) => `<span class="st-rank r${i}">${r}</span>`).join('<i>›</i>')}</div>
         <p class="rk-tip">Guild rank rises with monsters near your level, bosses and quests, and <b>drops when you fall</b>. A fresh promotion is protected for 10 minutes.</p>
         <table class="rk-t"><tr><th>#</th><th>Adventurer</th><th>Class</th><th>Lv</th><th>Rank</th><th>Power</th></tr>
         ${m.rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(classById(r.cls as 'mage').name)}</td><td>${r.level}</td><td><span class="st-rank r${ADV_RANKS.indexOf(r.rank as 'F')}">${r.rank}</span></td><td>${r.power.toLocaleString()}</td></tr>`).join('')}</table>
-        <p class="rk-tip">You are #${m.place} of ${m.total} adventurers.</p></div></div>`;
-      d.querySelector('[data-close]')!.addEventListener('click', close);
-    },
+        <p class="rk-tip">You are #${m.place} of ${m.total} adventurers.</p></div>`;
+    } else if (tab === 'tower' && tower) {
+      const m = tower;
+      body = `<div class="rk-body"><p class="rk-tip">Highest floor of the Hundredth Tower cleared. Ties go to whoever got there first. Your best: <b>${m.best ? 'Floor ' + m.best : 'not yet climbed'}</b>.</p>
+        ${m.rows.length ? `<table class="rk-t"><tr><th>#</th><th>Climber</th><th>Class</th><th>Lv</th><th>Floor</th></tr>
+        ${m.rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(classById(r.cls as 'mage').name)}</td><td>${r.level}</td><td><b>${r.floor}</b></td></tr>`).join('')}</table>` : '<p class="rk-tip">Nobody has cleared a floor yet. The Gate of the Tower waits at the Foot of the Tower.</p>'}
+        ${m.place ? `<p class="rk-tip">You are #${m.place} of ${m.total} climbers.</p>` : ''}</div>`;
+    }
+    d.innerHTML = `<div class="inv-box rk-box">${head()}${body}</div>`;
+    d.querySelector('[data-close]')!.addEventListener('click', close);
+    d.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab as 'power' | 'tower'; o.send?.({ type: tab === 'tower' ? 'towerBoard' : 'leaderboard' }); render(); }));
+  };
+  render();
+  return {
+    close,
+    update(m: PowerBoard) { power = m; render(); },
+    updateTower(m: TowerBoard) { tower = m; render(); },
   };
 }

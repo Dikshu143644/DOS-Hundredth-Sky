@@ -4,6 +4,8 @@ import { buildZone, heightAt, REGION, ZONE } from '../../shared/world';
 import { REGIONS } from '../../shared/regions';
 import { worldUV, type TorchInfo } from './city';
 import { tex } from './assets';
+import { floorOf } from '../../shared/tower';
+import { FloorDeco } from './floor';
 
 function pbr(name: string, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) {
   return new THREE.MeshStandardMaterial({ map: tex(`tex/${name}_col.jpg`), normalMap: tex(`tex/${name}_nor.jpg`, { srgb: false }), roughness: 0.9, metalness: 0, ...extra });
@@ -19,7 +21,7 @@ const STYLE: Record<string, { wall: [string, number]; roof: [string, number] }> 
   ruin: { wall: ['rock', 0x6a5a70], roof: ['rock', 0x504058] },
   plaza: { wall: ['brick', 0xe8e4f0], roof: ['roof', 0x5a6aa8] },
 };
-const PORTAL_COL: Record<string, number> = { capital: 0x9fd8ff, forest: 0x7cff9a, mountain: 0xc8d0ff, desert: 0xffc870, frozen: 0xbfeaff, forbidden: 0xc070ff, tower: 0xfff0b0 };
+const PORTAL_COL: Record<string, number> = { f1: 0xfff4c8,  capital: 0x9fd8ff, forest: 0x7cff9a, mountain: 0xc8d0ff, desert: 0xffc870, frozen: 0xbfeaff, forbidden: 0xc070ff, tower: 0xfff0b0 };
 
 /** Phase 4 · M2: everything built in a region that is not the Capital's hand-made city —
  *  town buildings in the region's style, ruins, torches — plus, in every zone, the glowing
@@ -32,6 +34,7 @@ export class Settlement {
   runeMat: THREE.MeshStandardMaterial;
   windowMat: THREE.MeshStandardMaterial;
   labels: { pos: THREE.Vector3; text: string }[] = [];
+  floor: FloorDeco | null = null;
 
   constructor(public scene: THREE.Scene) {
     scene.add(this.group);
@@ -75,8 +78,8 @@ export class Settlement {
       }
       // town centre: bonfire ring / well
       const ty = heightAt(R.town.x, R.town.z);
-      rockG.push(bake(worldUV(new THREE.CylinderGeometry(2.2, 2.4, 0.9, 20), 2), R.town.x, ty + 0.45, R.town.z));
-      runeG.push(bake(new THREE.OctahedronGeometry(0.5), R.town.x, ty + 2.6, R.town.z));
+      if (!floorOf(ZONE)) rockG.push(bake(worldUV(new THREE.CylinderGeometry(2.2, 2.4, 0.9, 20), 2), R.town.x, ty + 0.45, R.town.z));
+      if (!floorOf(ZONE)) runeG.push(bake(new THREE.OctahedronGeometry(0.5), R.town.x, ty + 2.6, R.town.z));
       // ruins
       for (const r of zone.ruins) {
         const g = heightAt(r.x, r.z);
@@ -109,8 +112,9 @@ export class Settlement {
           gl_FragColor = vec4(vCol*glow*1.6, glow); }`,
     });
     const portalG: THREE.BufferGeometry[] = [];
-    for (const e of R.exits) {
-      const g = heightAt(e.x, e.z), alongX = Math.abs(e.x) <= Math.abs(e.z); // gate spans across the road
+    const gates: typeof R.exits = [...R.exits, ...(ZONE === 'tower' ? [{ to: 'f1' as typeof R.exits[number]['to'], x: 0, z: -168, name: 'Gate of the Tower', yaw: 0 }] : [])];
+    for (const e of gates) {
+      const g = heightAt(e.x, e.z), alongX = floorOf(ZONE) ? true : Math.abs(e.x) <= Math.abs(e.z); // gate spans across the road
       const yaw = alongX ? 0 : Math.PI / 2;
       for (const sgn of [-1, 1]) {
         const px = e.x + (alongX ? sgn * 5 : 0), pz = e.z + (alongX ? 0 : sgn * 5);
@@ -149,12 +153,14 @@ export class Settlement {
         this.group.add(s);
         this.torches.push({ pos: new THREE.Vector3(t.x, t.y + 0.6, t.z), flame: s });
       }
+      if (floorOf(ZONE)) this.floor = new FloorDeco(scene, floorOf(ZONE), flameTex);
     }
   }
   update(t: number, night: number) {
     this.windowMat.emissiveIntensity = night * 2.2;
     this.runeMat.emissiveIntensity = 1.2 + night * 2.5 + Math.sin(t * 2) * 0.3;
     this.portalMat.uniforms.uTime.value = t;
+    this.floor?.update(t);
     for (const c of this.crystals) { c.rotation.y = t * 0.8; c.position.y += Math.sin(t * 1.7 + c.position.x) * 0.004; }
     for (let i = 0; i < this.torches.length; i++) {
       const f = this.torches[i].flame;
@@ -165,6 +171,7 @@ export class Settlement {
     }
   }
   dispose() {
+    this.floor?.dispose(this.scene);
     this.scene.remove(this.group);
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
   }

@@ -12,6 +12,7 @@ import { settings } from '../settings';
 import { openSettings } from '../ui/settings';
 import { audio } from '../audio';
 
+import { SYMBOLS, floorOf } from '../../shared/tower';
 const el = (tag: string, cls = '', html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
@@ -330,6 +331,15 @@ export class Hud {
   }
   hideDeath() { this.deathEl?.remove(); this.deathEl = null; }
 
+  private towerEl: HTMLElement | null = null;
+  /** Phase 4 · M5: floor chip under the minimap (floor, theme, objective). */
+  setTower(m: { floor: number; name: string; objective: string; seal: boolean; order: number[] | null; lit: number[] } | null) {
+    document.body.classList.toggle('in-tower', !!m);
+    if (!m) { this.towerEl?.remove(); this.towerEl = null; return; }
+    if (!this.towerEl) { this.towerEl = el('div', 'tw-chip'); this.root.appendChild(this.towerEl); }
+    const order = m.order && !m.seal ? `<div class="tw-ord">Stele: ${m.order.map((k, i) => `<span class="${m.lit.length > i ? 'on' : ''}">${SYMBOLS[k]}</span>`).join('')}</div>` : '';
+    this.towerEl.innerHTML = `<b>${esc(m.name)}</b><small class="${m.seal ? 'ok' : ''}">${esc(m.objective)}</small>${order}`;
+  }
   /** Phase 4: a new region streamed in — redraw the map. */
   invalidateMap() { this.mmBase = null; this.zoneShown = ''; }
 
@@ -357,7 +367,7 @@ export class Hud {
     g.fillStyle = 'rgba(60,110,60,.55)';
     for (const t of buildZone().trees) { const [a, b] = P(t.x, t.z); g.fillRect(a - 1, b - 1, 2.5, 2.5); }
     g.font = '600 12px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif'; g.textAlign = 'center';
-    for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
+    if (!floorOf(REGION.id)) for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
     void LAKE;
     // fast-travel shrines (blue diamonds) and region gates (gold arches)
     for (const s of REGION.shrines) { const [a, b] = P(s.x, s.z); g.fillStyle = '#7fd8ff'; g.beginPath(); g.moveTo(a, b - 7); g.lineTo(a + 5, b); g.lineTo(a, b + 7); g.lineTo(a - 5, b); g.closePath(); g.fill(); }

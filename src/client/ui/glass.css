@@ -520,3 +520,34 @@ body.bright .panel, body.bright .inv-box, body.bright .status-win, body.bright .
 .quest .qt, .quest .st.on { color: #fff !important; } .quest .st, .quest .src { color: rgba(255, 255, 255, .74) !important; }
 .chat .system { color: rgba(255, 255, 255, .92) !important; font-style: italic; }
 .chat .npc b { color: #ffe2b8 !important; }
+
+/* ---------------- Phase 4 · M5: the Hundredth Tower (floor chip, gate picker) */
+.tw-chip { position: absolute; right: 18px; top: 300px; z-index: 3; width: 236px; padding: 10px 14px; border-radius: 20px;
+  background: radial-gradient(140% 70% at 50% -30%, rgba(255, 255, 255, .26), rgba(255, 255, 255, 0) 60%), var(--g-surface);
+  -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur);
+  border: 1px solid rgba(255, 255, 255, .22); border-top-color: rgba(255, 255, 255, .45); box-shadow: var(--g-shadow-sm), var(--g-hi); color: #fff; text-shadow: var(--g-tsh); }
+.tw-chip b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+.tw-chip small { display: block; margin-top: 3px; font-size: 12px; color: rgba(255, 255, 255, .78); line-height: 1.35; }
+.tw-chip small.ok { color: #c8ffd8; }
+.tw-ord { margin-top: 6px; display: flex; gap: 6px; }
+.tw-ord span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; font-size: 15px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .22); }
+.tw-ord span.on { background: rgba(255, 255, 255, .42); border-color: rgba(255, 255, 255, .7); }
+.tg-box { width: min(720px, 94vw); padding: 18px 22px 20px; }
+.tg-sub { margin: 4px 0 10px; font-size: 13px; color: var(--g-text-2); line-height: 1.45; }
+.tg-bands { flex-wrap: wrap; justify-content: center; }
+.tg-bands button { padding: 6px 10px !important; font-size: 12px !important; }
+.tg-theme { text-align: center; font-size: 15px; font-weight: 600; margin: 6px 0 10px; }
+.tg-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.tg-floor { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 6px; border-radius: 20px; color: #fff; cursor: pointer; font-family: var(--g-font);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .07)); border: 1px solid rgba(255, 255, 255, .16); border-top-color: rgba(255, 255, 255, .34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 6px 16px -8px rgba(0, 0, 0, .3); transition: transform .35s var(--g-spring), background .2s; text-shadow: var(--g-tsh); }
+.tg-floor b { font-size: 20px; font-weight: 600; } .tg-floor small { font-size: 11px; color: rgba(255, 255, 255, .72); }
+.tg-floor:hover:not([disabled]) { background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, .15)); transform: translateY(-2px); }
+.tg-floor.next { background: linear-gradient(180deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .24)); border-color: rgba(255, 255, 255, .6); }
+.tg-floor.boss b::after { content: ' ♛'; font-size: 13px; color: #ffe08a; }
+.tg-floor.done small { color: #c8ffd8; }
+.tg-floor[disabled] { opacity: .38; cursor: default; }
+.tg-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
+@media (max-width: 760px) { .tw-chip { top: 214px; right: 8px; width: 190px; } .tg-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; } .tg-floor { padding: 8px 2px; } .tg-floor b { font-size: 16px; } }
+
+body.in-tower .quests { top: 400px !important; max-height: calc(100vh - 510px) !important; }

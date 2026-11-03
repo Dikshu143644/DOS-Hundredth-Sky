@@ -1,5 +1,6 @@
 import { fbm, ridged, mulberry32, noise2, clamp, smoothstep, lerp } from './rng';
 import { REGIONS, makeGenZone, regionPois, type ZoneId, type GenZone, type RegionDef } from './regions';
+import { makeFloorZone } from './tower';
 export type { ZoneId } from './regions';
 
 /** The starter zone: edge of the Capital City (north) and the Ancient Forest (south).
@@ -257,7 +258,9 @@ export let ZONE: ZoneId = 'capital';
 export let REGION: RegionDef = REGIONS.capital;
 export let ROADS: Vec2[][] = [ROAD, ROAD2, ROAD3];
 const gens: Partial<Record<ZoneId, GenZone>> = {};
-const gen = (id: ZoneId) => (gens[id] ??= makeGenZone(REGIONS[id]));
+const gen = (id: ZoneId) => (gens[id] ??= (REGIONS[id] as RegionDef & { floor?: number }).floor ? makeFloorZone((REGIONS[id] as RegionDef & { floor: number }).floor) : makeGenZone(REGIONS[id]));
+/** Tower floors whose sealed stairway door is open (server-authoritative; mirrored on the client). */
+export const SEALS_OPEN = new Set<string>();
 const NO_LAKE = { x: 9999, z: 9999, r: 0 };
 const regionPoisCache: Partial<Record<ZoneId, POI[]>> = {};
 export function setActiveZone(id: ZoneId | string | undefined) {
