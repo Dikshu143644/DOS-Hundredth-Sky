@@ -287,6 +287,91 @@ export class VFX {
   }
   death(at: THREE.Vector3) { this.burst(at.clone().setY(at.y + 1), 80, 2.5, 1.4, 0.3, 0x8fb8ff, -1, 0.5, 'spark'); this.burst(at.clone().setY(at.y + 0.6), 14, 1, 2, 1.6, 0x3a4250, -0.4, 0.5, 'smoke'); }
 
+  // ------------------------------------------------------------------ phase 4: generic class-skill effects
+  /** A coloured magic bolt (frost lance, spirit bolt…) that bursts on impact. */
+  orb(from: THREE.Vector3, to: THREE.Vector3, color: number, speed = 30, onImpact?: () => void) {
+    const dir = to.clone().sub(from); const dist = dir.length(); dir.normalize();
+    const dur = dist / speed, pos = from.clone(), c = new THREE.Color(color), white = new THREE.Color(0xffffff);
+    this.effects.push({ t: 0, dur, update: (e) => {
+      pos.copy(from).addScaledVector(dir, Math.min(dist, e.t * speed));
+      for (let i = 0, N = this.n(8); i < N; i++) { const j = () => (Math.random() - 0.5); this.add.spawn(this.time, pos.x + j() * 0.2, pos.y + j() * 0.2, pos.z + j() * 0.2, -dir.x * 2 + j(), -dir.y * 2 + j(), -dir.z * 2 + j(), 0.35, 0.35, 0, c, MODE.spark); }
+      this.add.spawn(this.time, pos.x, pos.y, pos.z, 0, 0, 0, 0.05, 1.4, 0, white, MODE.glow);
+      this.engine.requestLight({ pos: pos.clone(), color, intensity: 25, distance: 12, priority: 7 });
+      if (e.t >= e.dur) { onImpact?.(); this.burst(pos, 90, 6, 0.5, 0.14, color, 6, 0.4, 'spark'); this.ring(pos.clone().setY(heightAt(pos.x, pos.z) + 0.08), color, 0.3, 3, 0.4); return false; }
+      return true;
+    } });
+  }
+  quake(at: THREE.Vector3, radius: number, color: number) {
+    const g = new THREE.Vector3(at.x, heightAt(at.x, at.z) + 0.08, at.z);
+    this.ring(g, color, 0.4, radius * 1.2, 0.5);
+    this.burst(g, 120, radius * 1.4, 0.8, 0.5, 0x8a7458, 12, 1.4, 'smoke');
+    this.burst(g, 80, radius * 2, 0.6, 0.12, color, 14, 1.2, 'spark');
+    this.engine.flash = Math.max(this.engine.flash, 0.05);
+  }
+  nova(at: THREE.Vector3, radius: number, color: number) {
+    const g = new THREE.Vector3(at.x, heightAt(at.x, at.z) + 0.1, at.z);
+    this.ring(g, color, 0.6, radius, 0.6);
+    this.ring(g.clone().setY(g.y + 1), color, 0.3, radius * 0.8, 0.45);
+    this.burst(g.clone().setY(g.y + 1), 160, radius * 1.6, 0.6, 0.14, color, 2, 0.3, 'spark');
+    const p = g.clone();
+    this.effects.push({ t: 0, dur: 0.6, update: (e) => { this.engine.requestLight({ pos: p.clone().setY(p.y + 1.5), color, intensity: 50 * (1 - e.t / e.dur), distance: radius * 3, priority: 8 }); return e.t < e.dur; } });
+  }
+  aura(getPos: () => THREE.Vector3 | null, color: number, dur = 1.2) {
+    const c = new THREE.Color(color);
+    this.effects.push({ t: 0, dur, update: (e) => {
+      const p = getPos(); if (!p) return false;
+      for (let i = 0, N = this.n(6); i < N; i++) { const a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 0.4; this.add.spawn(this.time, p.x + Math.cos(a) * r, p.y + Math.random() * 1.8, p.z + Math.sin(a) * r, 0, 1.6 + Math.random(), 0, 0.8, 0.14, 0, c, MODE.spark); }
+      return e.t < e.dur;
+    } });
+    const p0 = getPos(); if (p0) this.ring(p0.clone().setY(p0.y + 0.06), color, 0.4, 2.2, 0.6);
+  }
+  dashTrail(from: THREE.Vector3, to: THREE.Vector3, color: number) {
+    const c = new THREE.Color(color);
+    for (let i = 0; i <= 24; i++) { const p = from.clone().lerp(to, i / 24); for (let k = 0; k < 4; k++) this.add.spawn(this.time, p.x + (Math.random() - .5) * 0.5, p.y + 0.3 + Math.random() * 1.4, p.z + (Math.random() - .5) * 0.5, 0, 0.4, 0, 0.5 + Math.random() * 0.3, 0.3, 0, c, MODE.glow); }
+    this.burst(to.clone().setY(to.y + 1), 50, 4, 0.4, 0.12, color, 4, 0.3, 'spark');
+  }
+  meteor(to: THREE.Vector3, color: number, radius: number, onImpact?: () => void) {
+    const from = to.clone().add(new THREE.Vector3(-14, 46, -10));
+    const dir = to.clone().sub(from); const dist = dir.length(); dir.normalize();
+    const speed = 48, dur = dist / speed, pos = from.clone(), fire = new THREE.Color(color);
+    this.telegraph(to, radius, color, dur);
+    this.effects.push({ t: 0, dur, update: (e) => {
+      pos.copy(from).addScaledVector(dir, Math.min(dist, e.t * speed));
+      for (let i = 0, N = this.n(24); i < N; i++) { const j = () => (Math.random() - 0.5); this.add.spawn(this.time, pos.x + j() * 1.2, pos.y + j() * 1.2, pos.z + j() * 1.2, -dir.x * 6 + j() * 2, -dir.y * 6 + j() * 2, -dir.z * 6 + j() * 2, 0.5 + Math.random() * 0.4, 1.6 + Math.random(), -1, fire, MODE.fire); }
+      this.engine.requestLight({ pos: pos.clone(), color, intensity: 90, distance: 40, priority: 12, shadow: true });
+      if (e.t >= e.dur) { onImpact?.(); this.explosion(to.clone(), color, radius); this.engine.flash = 0.3; return false; }
+      return true;
+    } });
+  }
+  arrowRain(at: THREE.Vector3, radius: number, color: number) {
+    const c = new THREE.Color(color);
+    this.ring(new THREE.Vector3(at.x, heightAt(at.x, at.z) + 0.08, at.z), color, radius, radius, 0.9);
+    this.effects.push({ t: 0, dur: 0.9, update: (e) => {
+      for (let i = 0, N = this.n(10); i < N; i++) { const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * radius; const x = at.x + Math.cos(a) * r, z = at.z + Math.sin(a) * r, y = heightAt(x, z); this.add.spawn(this.time, x, y + 9, z, 0, -26, 0, 0.34, 0.12, 0, c, MODE.spark); this.add.spawn(this.time, x, y + 0.1, z, 0, 0.5, 0, 0.3, 0.3, 0, c, MODE.glow); }
+      return e.t < e.dur;
+    } });
+  }
+  /** Danger zone for boss attacks: a red ring that fills before the hit lands. */
+  telegraph(at: THREE.Vector3, radius: number, color = 0xff3020, dur = 1.2, cone?: number) {
+    const geo = cone ? new THREE.CircleGeometry(1, 32, -cone / 2 - Math.PI / 2, cone) : new THREE.RingGeometry(0.92, 1, 64);
+    const fill = cone ? null : new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18, depthWrite: false }));
+    const ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: cone ? 0.28 : 0.85, depthWrite: false, side: THREE.DoubleSide }));
+    const grp = new THREE.Group(); grp.add(ring); if (fill) grp.add(fill);
+    grp.rotation.x = -Math.PI / 2; grp.position.set(at.x, heightAt(at.x, at.z) + 0.12, at.z); grp.scale.setScalar(radius);
+    this.engine.scene.add(grp);
+    this.effects.push({ t: 0, dur, update: (e) => {
+      const k = e.t / e.dur; if (fill) fill.scale.setScalar(k);
+      if (k >= 1) { grp.removeFromParent(); ring.geometry.dispose(); fill?.geometry.dispose(); return false; }
+      return true;
+    } });
+    return grp;
+  }
+  heal(at: THREE.Vector3, color = 0x9fffb0) {
+    this.burst(at.clone().setY(at.y + 1), 50, 1.5, 0.9, 0.14, color, -2, 1.2, 'spark');
+    this.ring(at.clone().setY(at.y + 0.06), color, 0.3, 1.6, 0.5);
+  }
+  floatText(at: THREE.Vector3, color: number) { this.burst(at, 30, 3, 0.4, 0.1, color, 4, 0.4, 'spark'); }
+
   update(dt: number) {
     this.time += dt;
     for (let i = this.effects.length - 1; i >= 0; i--) { const e = this.effects[i]; e.t += dt; if (!e.update(e, dt)) this.effects.splice(i, 1); }

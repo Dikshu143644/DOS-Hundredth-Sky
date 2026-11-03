@@ -13,7 +13,10 @@ import { settings } from '../settings';
 import { newCharState, stepCharacter, CharState, MoveInput, PHYS, raycastWorld } from '../../shared/physics';
 import { InterpBuffer, PendingInputs, PingStats, lerpAngle } from '../../shared/netcode';
 import { INTERP_DELAY_MS, NetEntity, S2C, CharacterSummary, SelfState } from '../../shared/protocol';
-import { SPELLS, spellById, classById } from '../../shared/combat';
+import { spellById, classById } from '../../shared/combat';
+import { skillForSlot, rankScale, SkillDef } from '../../shared/skills';
+import { heroPanel } from '../ui/hero';
+import type { ProgressView } from '../../shared/protocol';
 import { heightAt, WATER_LEVEL } from '../../shared/world';
 
 interface Remote { id: number; t: NetEntity['t']; view: CharacterView; buf: InterpBuffer; ent: NetEntity; name: string; key: string; lv: number; plate: HTMLElement; lastPos: THREE.Vector3; speed: number }
@@ -98,7 +101,8 @@ export class GameClient {
       case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source); break;
       case 'quest': this.hud.setQuest(m.quest, m.event === 'discovered'); if (m.event === 'discovered') audio.questReveal(); break;
       case 'notice': this.hud.notice(m.text, m.style); if (m.style === 'levelup') audio.levelUp(); break;
-      case 'died': this.dead = true; this.hud.showDeath(m.by); audio.death(); break;
+      case 'died': this.dead = true; this.hud.showDeath(m.by, m); audio.death(); break;
+      case 'progress': this.progress = m.p; this.hud.setProgress(m.p); this.heroUi?.update(m.p, this.self.level); break;
       case 'kick': this.hud.notice(m.reason, 'warn'); break;
     }
   }
@@ -111,7 +115,7 @@ export class GameClient {
     // --- reconciliation: rewind to the server's state for the last acknowledged input, replay the rest
     const before = new THREE.Vector3(this.me.x, this.me.y, this.me.z);
     this.pending.ack(m.ack);
-    const s: CharState = { x: m.me.x, y: m.me.y, z: m.me.z, vx: m.me.vx, vy: m.me.vy, vz: m.me.vz, yaw: m.me.yaw, grounded: m.me.g, swimming: m.me.sw, coyote: 0 };
+    const s: CharState = { x: m.me.x, y: m.me.y, z: m.me.z, vx: m.me.vx, vy: m.me.vy, vz: m.me.vz, yaw: m.me.yaw, grounded: m.me.g, swimming: m.me.sw, coyote: 0, dg: m.me.dg ?? 0, dc: m.me.dc ?? 0, ddx: m.me.ddx ?? 0, ddz: m.me.ddz ?? 0 };
     for (const inp of this.pending.list) stepCharacter(s, inp, this.speedMul());
     const err = Math.hypot(s.x - before.x, s.y - before.y, s.z - before.z);
     if (err > 0.01) {
@@ -146,7 +150,7 @@ export class GameClient {
     this.hud.updateSelf(m.self);
   }
 
-  private speedMul() { return (this.casting ? 0.35 : 1) * this.myClass.spd; }
+  private speedMul() { return this.self.sm ?? (this.casting ? 0.35 : 1) * this.myClass.spd; }
 
   private entPos(id: number): THREE.Vector3 | null {
     if (id === this.myId) return this.myView.root.position.clone();
@@ -155,10 +159,19 @@ export class GameClient {
 
   private onFx(m: Extract<S2C, { type: 'fx' }>) {
     const at = new THREE.Vector3(m.x ?? 0, m.y ?? 0, m.z ?? 0);
+    const at0 = at;
     const near = at.distanceTo(this.renderPos);
     const vol = Math.max(0, 1 - near / 80);
     switch (m.kind) {
       case 'cast': {
+        if (m.spell?.startsWith('boss_')) { // telegraphed boss attack: show the danger zone
+          const r = this.remotes.get(m.src!);
+          const at = r ? r.view.root.position.clone() : at0;
+          if (m.amount) this.vfx.telegraph(at, m.amount, 0xff3020, 1.2, m.spell === 'boss_breath' ? 1.05 : undefined)?.rotation.set(-Math.PI / 2, 0, m.spell === 'boss_breath' ? (r?.ent.r ?? 0) : 0);
+          if (m.spell === 'boss_volley' || m.spell === 'boss_charge') this.vfx.aura(() => this.entPos(m.src!), 0xff4030, 1.2);
+          this.hud.notice(`${r?.name ?? 'The boss'} prepares ${m.text === 'slam' ? 'a GROUND SLAM' : m.text === 'breath' ? 'a BREATH attack' : m.text === 'volley' ? 'a VOLLEY' : m.text === 'charge' ? 'to CHARGE' : 'to call ADDS'} — dodge!`, 'warn');
+          break;
+        }
         const sp = spellById(m.spell!); if (!sp) break;
         const src = m.src!;
         this.vfx.castAura(() => (this.remotes.has(src) || src === this.myId ? this.entPos(src) : null), sp.id, sp.castTime);
@@ -166,16 +179,36 @@ export class GameClient {
         break;
       }
       case 'spell': {
+        if (m.spell?.startsWith('boss_')) { const p = this.entPos(m.src!) ?? at; if (m.spell === 'boss_breath') this.vfx.explosion(p.clone().add(new THREE.Vector3(-Math.sin(this.remotes.get(m.src!)?.ent.r ?? 0) * 5, 1, -Math.cos(this.remotes.get(m.src!)?.ent.r ?? 0) * 5)), 0xff5a1a, 5); else this.vfx.quake(p, m.amount ?? 6, 0xff6040); this.cam.addShake(Math.max(0, 1 - p.distanceTo(this.renderPos) / 25)); if (vol > 0) audio.explosion(); break; }
         const sp = spellById(m.spell!); if (!sp) break;
-        if (vol > 0) audio.spell(sp.id);
+        if (vol > 0) audio.spell(sp.fx === 'ignis' || sp.fx === 'meteor' ? 'ignis' : sp.fx === 'fulgur' ? 'fulgur' : sp.fx === 'lux' || sp.fx === 'heal' || sp.kind === 'buff' ? 'lux' : sp.scale === 'mag' ? 'fulgur' : 'ignis');
         const src = this.entPos(m.src!) ?? at;
-        const from = src.clone().add(new THREE.Vector3(-Math.sin(m.src === this.myId ? this.me.yaw : 0) * 0.6, 1.5, -Math.cos(m.src === this.myId ? this.me.yaw : 0) * 0.6));
+        const yaw = m.src === this.myId ? this.me.yaw : (this.remotes.get(m.src!)?.ent.r ?? 0);
+        const from = src.clone().add(new THREE.Vector3(-Math.sin(yaw) * 0.6, 1.5, -Math.cos(yaw) * 0.6));
         const to = new THREE.Vector3(m.tx ?? at.x, m.ty ?? at.y, m.tz ?? at.z);
-        if (sp.id === 'ignis') this.vfx.ignis(from, to, () => { audio.explosion(); this.cam.addShake(Math.max(0, 1 - to.distanceTo(this.renderPos) / 30)); });
-        else if (sp.id === 'fulgur') { this.vfx.fulgur(from, to); this.cam.addShake(Math.max(0, 0.6 - to.distanceTo(this.renderPos) / 50)); }
-        else { this.vfx.lux(src); }
+        this.skillFx(sp, src, from, to, m.dst, yaw);
         break;
       }
+      case 'dash': {
+        const sp = m.spell ? spellById(m.spell) : undefined;
+        const from = at.clone(), to = new THREE.Vector3(m.tx ?? at.x, m.ty ?? at.y, m.tz ?? at.z);
+        this.vfx.dashTrail(from, to, sp?.color ?? 0xff6040);
+        if (m.src === this.myId) { this.me.x = to.x; this.me.y = to.y; this.me.z = to.z; this.me.vx = this.me.vy = this.me.vz = 0; this.pending.list.length = 0; this.correction.set(0, 0, 0); }
+        if (sp && (sp.fx === 'quake' || sp.radius > 0)) setTimeout(() => this.vfx.quake(to, sp.radius, sp.color), 60);
+        if (vol > 0) audio.swing();
+        break;
+      }
+      case 'buff': { const sp = m.spell ? spellById(m.spell) : undefined; this.vfx.aura(() => this.entPos(m.dst!), sp?.color ?? 0xffe9a8, 1.4); break; }
+      case 'combo': if (m.text === 'FINISHER') { this.cam.addShake(0.25); const t = this.targetId ? this.entPos(this.targetId) : null; if (t) this.vfx.quake(t, 2, 0xffd9a0); } break;
+      case 'dodge': case 'parry': case 'react': case 'status': {
+        const p = m.dst !== undefined ? this.entPos(m.dst) : at; if (!p) break;
+        const col = m.kind === 'parry' ? 0xffe9a8 : m.kind === 'dodge' ? 0xc8ffe8 : m.kind === 'react' ? 0xff9a40 : 0xd0d0ff;
+        this.hud.floatWord(p.clone().setY(p.y + (m.kind === 'react' ? 2.9 : 2.5)), m.text ?? '', col, m.kind === 'react' || m.kind === 'parry');
+        if (m.kind === 'parry') { this.vfx.floatText(p.clone().setY(p.y + 1.3), col); this.cam.addShake(0.2); if (vol > 0) audio.hit(true); }
+        if (m.kind === 'react') this.vfx.nova(p, 2.5, col);
+        break;
+      }
+      case 'parrystance': { const r = this.remotes.get(m.src!); if (r) r.view.update(0, 'parry', 0); break; }
       case 'hit': {
         if (m.dst === undefined) break; // projectile impact handled by spell fx
         const p = this.entPos(m.dst); if (!p) break;
@@ -193,7 +226,8 @@ export class GameClient {
         const r = this.remotes.get(src);
         if (r) {
           if (m.spell === 'bolt' && m.dst !== undefined) { const to = this.entPos(m.dst); if (to) this.vfx.bolt(r.view.root.position.clone().setY(r.view.root.position.y + 1.6), to.setY(to.y + 1.1)); }
-          else if (r.t === 'm') this.vfx.slash(r.view.root.position, r.ent.r, 0xa0c0ff);
+          else if (m.spell === 'firebolt' && m.dst !== undefined) { const to = this.entPos(m.dst); if (to) this.vfx.orb(r.view.root.position.clone().setY(r.view.root.position.y + 1.6), to.setY(to.y + 1.1), 0xff8a3a, 26); }
+          else if (r.t === 'm' || r.t === 's') this.vfx.slash(r.view.root.position, r.ent.r, r.t === 's' ? 0x9fe8ff : 0xa0c0ff);
           else { const c = classById(r.key); if (c.weapon === 'bow' || c.weapon === 'staff') { const tgt = this.nearestMonsterTo(r.view.root.position, r.ent.r); if (tgt) this.vfx.arrow(r.view.root.position.clone().setY(r.view.root.position.y + 1.4), tgt.setY(tgt.y + 1.1), c.weapon === 'staff' ? 0xa0f0ff : 0xfff0d0); } else this.vfx.slash(r.view.root.position, r.ent.r); }
           if (vol > 0.3) audio.swing();
         }
@@ -243,6 +277,7 @@ export class GameClient {
     if (a === 'quests') return this.hud.toggleQuests();
     if (a === 'inventory') return this.openInventory();
     if (a === 'armory') return (window as any).__dos?.openArmory?.(this.equipment.weapon);
+    if (a === 'hero') return this.openHero();
     if (this.dead) return;
     if (a === 'target') return this.cycleTarget();
     if (a === 'interact') return this.interact();
@@ -262,8 +297,47 @@ export class GameClient {
       this.combatT = 6;
       return;
     }
-    const sp = SPELLS.find((s) => 'spell' + s.key === a);
-    if (sp) this.cast(sp.id);
+    if (a === 'dodge') { if (!this.me.grounded || (this.me.dc ?? 0) > 0) return; this.dodgeQueued = true; return; }
+    if (a === 'parry') { if (now < this.parryCdLocal) return; this.parryCdLocal = now + 1.1; this.net.send({ type: 'parry' }); this.animOverride = { name: 'parry', until: now + 0.45 }; return; }
+    const m = /^spell([1-5])$/.exec(a);
+    const slot = m ? Number(m[1]) : a === 'ult' ? 6 : 0;
+    if (slot) {
+      const sp = skillForSlot(this.cls, slot, this.progress?.adv ?? null);
+      if (!sp) { if (slot === 5) this.hud.notice('Choose an advanced class at level 20 (P)', 'warn'); return; }
+      if (this.self.level < sp.unlock) { this.hud.notice(`${sp.name} unlocks at level ${sp.unlock}`, 'warn'); return; }
+      this.cast(sp.id);
+    }
+  }
+  progress: ProgressView | null = null;
+  heroUi: ReturnType<typeof heroPanel> | null = null;
+  dodgeQueued = false;
+  parryCdLocal = 0;
+  openHero() {
+    if (this.heroUi) { this.heroUi.close(); return; }
+    document.exitPointerLock?.();
+    this.heroUi = heroPanel({ cls: this.cls, level: this.self.level, progress: this.progress, send: (m) => this.net.send(m), onClose: () => { this.heroUi = null; } });
+  }
+
+  /** Draw a class skill (server already decided what it hit). */
+  private skillFx(sp: SkillDef, src: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, dst: number | undefined, yaw: number) {
+    const shake = (k: number) => this.cam.addShake(Math.max(0, k - to.distanceTo(this.renderPos) / 40));
+    switch (sp.fx) {
+      case 'ignis': if (sp.kind === 'projectile') this.vfx.ignis(from, to, () => { audio.explosion(); shake(1); }); else { this.vfx.explosion(sp.kind === 'nova' ? src.clone().setY(src.y + 1) : to, sp.color, sp.radius); shake(0.9); audio.explosion(); } break;
+      case 'fulgur': this.vfx.fulgur(from, to); shake(0.6); break;
+      case 'lux': this.vfx.lux(sp.kind === 'strike' ? to : src); break;
+      case 'meteor': this.vfx.meteor(to, sp.color, sp.radius, () => { audio.explosion(); shake(1.2); }); break;
+      case 'frost': if (sp.kind === 'projectile') this.vfx.orb(from, to, sp.color, 32); else this.vfx.nova(to, sp.radius, sp.color); break;
+      case 'arrow': this.vfx.arrow(from, to, sp.color); break;
+      case 'rain': this.vfx.arrowRain(to, sp.radius, sp.color); break;
+      case 'quake': this.vfx.quake(sp.kind === 'strike' ? to : src, sp.radius, sp.color); shake(0.5); break;
+      case 'slash': { const n = sp.kind === 'cone' ? 3 : 1; for (let i = 0; i < n; i++) setTimeout(() => this.vfx.slash(src, yaw + (i - 1) * 0.35, sp.color), i * 60); break; }
+      case 'shadow': if (sp.kind === 'cone' || sp.kind === 'nova') { for (let i = 0; i < 6; i++) setTimeout(() => this.vfx.slash(src, yaw + i * 1.05, sp.color), i * 50); this.vfx.nova(src, sp.radius || 4, sp.color); } else this.vfx.nova(to, sp.radius || 3, sp.color); break;
+      case 'gale': case 'ring': this.vfx.nova(sp.kind === 'strike' ? to : src, sp.radius || 4, sp.color); break;
+      case 'aura': this.vfx.aura(() => src, sp.color, 1.2); if (sp.radius > 2) this.vfx.nova(src, sp.radius, sp.color); break;
+      case 'heal': { const p = dst !== undefined ? this.entPos(dst) : src; if (p) this.vfx.heal(p, sp.color); if (sp.kind === 'nova') this.vfx.nova(src, sp.radius, sp.color); break; }
+      case 'summon': { const p = dst !== undefined ? this.entPos(dst) ?? to : to; this.vfx.nova(p, 2.5, sp.color); this.vfx.lux(p); break; }
+      case 'dash': this.vfx.nova(to, sp.radius || 3, sp.color); break;
+    }
   }
 
   cast(id: string) {
@@ -271,10 +345,13 @@ export class GameClient {
     const now = performance.now() / 1000;
     if (this.casting) return;
     const st = this.serverNow();
+    const rs = rankScale(sp, this.progress?.ranks[id] ?? 1);
     if ((this.self.cds[id] ?? 0) > st) { this.hud.notice('Not ready yet', 'warn'); return; }
-    if (this.self.mp < sp.mana) { this.hud.notice('Not enough mana', 'warn'); return; }
-    let target = this.targetId && this.remotes.get(this.targetId)?.t === 'm' ? this.targetId : 0;
-    if (!target && sp.kind !== 'nova') target = this.autoTarget(sp.range) ?? 0;
+    if (this.self.mp < rs.mana) { this.hud.notice('Not enough mana', 'warn'); return; }
+    const hostile = this.targetId && this.remotes.get(this.targetId)?.t === 'm';
+    let target = hostile ? this.targetId : 0;
+    if (sp.kind === 'heal') { const r = this.targetId ? this.remotes.get(this.targetId) : undefined; target = r && (r.t === 'p' || r.t === 'b') ? r.id : 0; }
+    else if (!target && sp.range > 0) target = this.autoTarget(sp.range) ?? 0;
     const t = target ? this.remotes.get(target) : undefined;
     const yaw = t ? Math.atan2(-(t.view.root.position.x - this.me.x), -(t.view.root.position.z - this.me.z)) : this.cam.moveYaw;
     this.me.yaw = yaw;
@@ -283,10 +360,12 @@ export class GameClient {
     const d = raycastWorld(cam.position.x, cam.position.y, cam.position.z, dir.x, dir.y, dir.z, sp.range + 10);
     const aim = cam.position.clone().addScaledVector(dir, d);
     this.net.send({ type: 'cast', spell: id, target: target || undefined, yaw, aimX: aim.x, aimY: aim.y, aimZ: aim.z });
-    this.casting = { spell: id, until: now + sp.castTime, start: now };
-    this.hud.startCast(sp);
-    audio.castCharge(id, sp.castTime);
-    audio.chant(`${sp.name}. ${sp.incantation}`);
+    if (sp.castTime > 0.25) {
+      this.casting = { spell: id, until: now + sp.castTime, start: now };
+      this.hud.startCast(sp);
+      audio.castCharge(sp.fx === 'fulgur' ? 'fulgur' : sp.fx === 'lux' || sp.fx === 'heal' ? 'lux' : 'ignis', sp.castTime);
+    } else this.animOverride = { name: sp.scale === 'mag' ? 'castshoot' : sp.kind === 'dash' ? 'attack2' : 'attack', until: now + 0.5 };
+    if (sp.incantation) audio.chant(`${sp.name}. ${sp.incantation}`);
     this.combatT = 6;
   }
 
@@ -337,10 +416,11 @@ export class GameClient {
     while (this.acc >= PHYS.DT) {
       this.acc -= PHYS.DT;
       const ax = this.dead ? { mx: 0, mz: 0 } : this.input.axes();
-      const inp: MoveInput = { seq: ++this.seq, mx: ax.mx, mz: ax.mz, yaw: this.cam.moveYaw, jump: !this.dead && !this.input.typing && (this.input.down('jump') || this.input.touchJump), sprint: this.input.down('sprint'), walk: this.input.walkToggle, dt: PHYS.DT };
+      const inp: MoveInput = { seq: ++this.seq, mx: ax.mx, mz: ax.mz, yaw: this.cam.moveYaw, jump: !this.dead && !this.input.typing && (this.input.down('jump') || this.input.touchJump), sprint: this.input.down('sprint'), walk: this.input.walkToggle, dt: PHYS.DT, dodge: this.dodgeQueued && !this.dead };
+      this.dodgeQueued = false;
       stepCharacter(this.me, inp, this.speedMul());
       this.pending.push(inp);
-      this.net.send({ type: 'input', seq: inp.seq, mx: inp.mx, mz: inp.mz, yaw: +inp.yaw.toFixed(4), jump: inp.jump, sprint: inp.sprint, walk: inp.walk, dt: inp.dt });
+      this.net.send({ type: 'input', seq: inp.seq, mx: inp.mx, mz: inp.mz, yaw: +inp.yaw.toFixed(4), jump: inp.jump, sprint: inp.sprint, walk: inp.walk, dt: inp.dt, dodge: inp.dodge || undefined });
     }
     // casting state
     if (this.casting && now >= this.casting.until) { this.casting = null; this.animOverride = { name: 'castshoot', until: now + 0.5 }; this.hud.endCast(); }
@@ -356,6 +436,7 @@ export class GameClient {
     if (this.me.grounded && !this.wasGrounded) { anim = 'land'; audio.footstep(false); }
     this.wasGrounded = this.me.grounded;
     if (this.casting) anim = 'cast';
+    if ((this.me.dg ?? 0) > 0) anim = 'roll';
     if (this.animOverride && now < this.animOverride.until && !this.dead) anim = this.animOverride.name;
     this.myView.update(dt, anim, sp);
     // remotes: interpolate INTERP_DELAY behind server time

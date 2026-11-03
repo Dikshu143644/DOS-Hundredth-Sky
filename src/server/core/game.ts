@@ -1,4 +1,4 @@
-import { newCharState, stepCharacter, CharState, MoveInput, PHYS, hasLineOfSight, raycastWorld } from '../../shared/physics';
+import { newCharState, stepCharacter, CharState, MoveInput, PHYS, hasLineOfSight, raycastWorld, sweepDash } from '../../shared/physics';
 import { heightAt, SPAWN, POIS, poiAt, POI, WATER_LEVEL, buildZone } from '../../shared/world';
 import { mulberry32, clamp } from '../../shared/rng';
 import {
@@ -12,12 +12,17 @@ import { NPCS, NpcDef } from './npcdefs';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
 import { LlmGate, LlmFn, parseJsonLoose } from './llm';
 import { Quest, SPARKS, generateQuest, questView, DirectorContext } from './director';
+import { Combat, Status as FxStatus, newStatus, Summon } from './combat';
+import { Progression } from './progression';
+import { SKILLS, Attr, titleById } from '../../shared/skills';
 
 // ------------------------------------------------------------------ persistence contracts
 export interface CharRecord {
   id: string; name: string; cls: ClassId; level: number; xp: number; gold: number; appearance: Appearance; created: number;
   inventory: { item: string; rarity: string; n: number }[]; quests: Quest[]; sparks: string[]; deeds: string[]; kills: number; deaths: number;
   equipment?: Equipment;
+  attrs?: Partial<Record<Attr, number>>; skillRanks?: Record<string, number>; adv?: string | null; titles?: string[]; title?: string | null;
+  rep?: Record<string, number>; mastery?: Record<string, number>; counters: Record<string, number>; shrine?: string; zone?: string;
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -36,20 +41,21 @@ export interface GameOptions {
   serverName: string; log?: (...a: unknown[]) => void;
 }
 
-type EntType = 'p' | 'm' | 'n' | 'b';
-interface Ent { id: number; type: EntType; s: CharState; hp: number; mhp: number; anim: string; animUntil: number; name: string; model: string; dead: boolean; stunUntil: number; level: number }
+export type EntType = 'p' | 'm' | 'n' | 'b' | 's';
+export interface Ent { id: number; type: EntType; s: CharState; hp: number; mhp: number; anim: string; animUntil: number; name: string; model: string; dead: boolean; stunUntil: number; level: number; st: FxStatus; zone: string }
 
-interface Player extends Ent {
+export interface Player extends Ent {
   conn: Conn | null; user: string; char: CharRecord; stats: Stats; mp: number; cds: Record<string, number>;
   inputs: MoveInput[]; budget: InputBudget; lastSeq: number; known: Set<number>;
   casting: null | { spell: string; until: number; target?: number; aim?: { x: number; y: number; z: number }; yaw: number };
   attackReadyAt: number; lastHurt: number; poi: string | null; streak: number; lastChat: number; lastTalk: number;
   brain?: BotBrain; respawnAt: number; joinedAt: number;
+  combo: { n: number; last: number }; parryCd: number; weakUntil: number;
 }
-interface Monster extends Ent { def: MonsterDef; home: { x: number; z: number }; ai: 'idle' | 'patrol' | 'chase' | 'attack' | 'flee' | 'return'; target: number; nextAttack: number; wander: { x: number; z: number } | null; aiTimer: number; respawnAt: number; fleeUntil: number; lastHitBy: number; threat: Map<number, number> }
+export interface Monster extends Ent { enraged?: boolean; specialAt?: number; summonedBy?: number; noRespawn?: boolean; def: MonsterDef; home: { x: number; z: number }; ai: 'idle' | 'patrol' | 'chase' | 'attack' | 'flee' | 'return'; target: number; nextAttack: number; wander: { x: number; z: number } | null; aiTimer: number; respawnAt: number; fleeUntil: number; lastHitBy: number; threat: Map<number, number> }
 interface Npc extends Ent { def: NpcDef; bt: BTNode<Npc>; talkTo: number; talkUntil: number; patrolIdx: number; hidden: boolean; goal: { x: number; z: number; anim: string; yaw?: number } | null }
 interface BotBrain { role: ClassId; goal: { x: number; z: number } | null; target: number; retreat: boolean; nextThink: number; nextChat: number }
-interface Projectile { owner: number; spell: string; x: number; y: number; z: number; dx: number; dy: number; dz: number; speed: number; left: number }
+export interface Projectile { owner: number; spell: string; x: number; y: number; z: number; dx: number; dy: number; dz: number; speed: number; left: number; power: number; stat: number; homing?: number }
 
 const SPAWNS: { kind: MonsterKind; x: number; z: number; n: number }[] = [
   { kind: 'minion', x: 16, z: -30, n: 3 },
@@ -82,10 +88,21 @@ export class Game {
   private lastTick = 0;
   private tickN = 0;
   readonly DAY_SECONDS = 1200; // one in-game day = 20 real minutes
+  combat: Combat;
+  progress: Progression;
+  newId() { return this.nextId++; }
+  rand() { return this.rnd(); }
+  removeEnt(id: number) { this.ents.delete(id); }
+  /** PvP: players are hostile to each other only inside a duel/arena (set by the social system). */
+  pvpHostile(a: Ent, b: Ent): boolean { void a; void b; return false; }
+  weatherAt(p: Ent): string { void p; return this.weather; }
+  poiIdAt(x: number, z: number): string | null { return poiAt(x, z)?.id ?? null; }
 
   constructor(public o: GameOptions) {
     this.data = o.store.load() ?? { users: {}, sessions: {}, npcMemory: {}, worldEvents: [] };
     this.llm = new LlmGate(o.llm, o.now);
+    this.combat = new Combat(this);
+    this.progress = new Progression(this);
     buildZone();
     for (const sp of SPAWNS) for (let i = 0; i < sp.n; i++) this.spawnMonster(sp.kind, sp.x + (this.rnd() - 0.5) * 10, sp.z + (this.rnd() - 0.5) * 10);
     for (const d of NPCS) this.spawnNpc(d);
@@ -159,7 +176,7 @@ export class Game {
         if (taken) return send({ type: 'charError', error: 'That name already walks this world.' });
         const ap = m.appearance ?? ({} as Appearance);
         const appearance: Appearance = { tint: clampInt(ap.tint, 0, 0xffffff, 0xffffff), accent: clampInt(ap.accent, 0, 0xffffff, 0x3fd0ff), headgear: !!ap.headgear, cape: ap.cape !== false, scale: clamp(Number(ap.scale) || 1, 0.92, 1.08), body: ap.body === 'f' ? 'f' : 'm' };
-        const ch: CharRecord = { id: this.o.hasher.token().slice(0, 12), name, cls: m.cls, level: 1, xp: 0, gold: 10, appearance, created: Date.now(), inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0 };
+        const ch: CharRecord = { id: this.o.hasher.token().slice(0, 12), name, cls: m.cls, level: 1, xp: 0, gold: 10, appearance, created: Date.now(), inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0, counters: {} };
         u.chars.push(ch);
         this.markDirty();
         send({ type: 'chars', list: u.chars.map(summary) });
@@ -193,11 +210,17 @@ export class Game {
         const dt = Number(m.dt);
         if (!(dt > 0 && dt <= 0.05)) return;
         if (m.seq <= p.lastSeq) return;
-        p.inputs.push({ seq: m.seq | 0, mx: clamp(+m.mx || 0, -1, 1), mz: clamp(+m.mz || 0, -1, 1), yaw: +m.yaw || 0, jump: !!m.jump, sprint: !!m.sprint, walk: !!m.walk, dt });
+        p.inputs.push({ seq: m.seq | 0, mx: clamp(+m.mx || 0, -1, 1), mz: clamp(+m.mz || 0, -1, 1), yaw: +m.yaw || 0, jump: !!m.jump, sprint: !!m.sprint, walk: !!m.walk, dt, dodge: !!m.dodge });
         return;
       }
-      case 'attack': this.basicAttack(p, +m.yaw || 0, m.target, now); return;
-      case 'cast': this.startCast(p, String(m.spell), m.target, +m.yaw || 0, m.aimX !== undefined ? { x: +m.aimX!, y: +m.aimY!, z: +m.aimZ! } : undefined, now); return;
+      case 'attack': this.combat.basicAttack(p, +m.yaw || 0, m.target, now); return;
+      case 'parry': this.combat.parry(p, now); return;
+      case 'allocStat': this.progress.allocStat(p, String(m.attr), Number(m.n ?? 1)); return;
+      case 'resetStats': this.progress.resetStats(p); return;
+      case 'rankSkill': this.progress.rankSkill(p, String(m.skill)); return;
+      case 'advance': this.progress.advance(p, String(m.adv)); return;
+      case 'setTitle': this.progress.setTitle(p, m.title ? String(m.title) : null); return;
+      case 'cast': this.combat.startCast(p, String(m.spell), m.target, +m.yaw || 0, m.aimX !== undefined ? { x: +m.aimX!, y: +m.aimY!, z: +m.aimZ! } : undefined, now); return;
       case 'chat': {
         if (now - p.lastChat < 0.8) return;
         p.lastChat = now;
@@ -243,15 +266,22 @@ export class Game {
 
   /** Class/level stats plus equipped item bonuses (the server is the only place this is computed). */
   statsOf(ch: CharRecord): Stats {
-    const st = statsFor(ch.cls, ch.level);
+    const st = statsFor(ch.cls, ch.level, ch.attrs ?? {}, ch.adv);
     const b = equipBonus(ch.equipment ?? {});
     return { ...st, atk: st.atk + b.atk, mag: st.mag + b.mag, def: st.def + b.def, maxHp: st.maxHp + b.hp, maxMp: st.maxMp + b.mp };
+  }
+  /** Recompute stats after attributes/equipment/advanced class change, keeping HP/MP fractions. */
+  refreshStats(p: Player) {
+    const hpFrac = p.hp / Math.max(1, p.mhp), mpFrac = p.mp / Math.max(1, p.stats.maxMp);
+    p.stats = this.statsOf(p.char); p.mhp = p.stats.maxHp; p.hp = Math.max(1, Math.round(p.mhp * hpFrac)); p.mp = Math.round(p.stats.maxMp * mpFrac);
+    this.markDirty();
   }
 
   // ------------------------------------------------------------------ entities
   private addPlayer(conn: Conn | null, user: string, ch: CharRecord, bot?: BotBrain): Player {
     const id = this.nextId++;
     ensureKit(ch);
+    ch.counters = ch.counters ?? {};
     const st = this.statsOf(ch);
     const s = newCharState(SPAWN.x + (this.rnd() - 0.5) * 4, SPAWN.z + (this.rnd() - 0.5) * 3, SPAWN.yaw);
     const cls = classById(ch.cls);
@@ -259,6 +289,7 @@ export class Game {
       id, type: bot ? 'b' : 'p', s, hp: st.maxHp, mhp: st.maxHp, anim: 'idle', animUntil: 0, name: ch.name, model: cls.id, dead: false, stunUntil: 0, level: ch.level,
       conn, user, char: ch, stats: st, mp: st.maxMp, cds: {}, inputs: [], budget: new InputBudget(this.o.now()), lastSeq: 0, known: new Set(), casting: null,
       attackReadyAt: 0, lastHurt: -99, poi: null, streak: 0, lastChat: 0, lastTalk: 0, brain: bot, respawnAt: 0, joinedAt: this.o.now(),
+      st: newStatus(), zone: ch.zone ?? 'capital', combo: { n: 0, last: 0 }, parryCd: 0, weakUntil: 0,
     };
     this.ents.set(id, p);
     this.players.set(id, p);
@@ -266,6 +297,9 @@ export class Game {
       this.ensureStarterQuest(p);
       conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.weather, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
       this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived at the Gate of Dawn.`, channel: 'world' }, id);
+      this.progress.send(p);
+      this.progress.award(p, 'newcomer');
+      this.progress.checkTitles(p);
     }
     return p;
   }
@@ -277,21 +311,21 @@ export class Game {
   private spawnBot(i: number) {
     const roles: ClassId[] = ['mage', 'warrior', 'archer', 'knight', 'healer', 'assassin'];
     const role = roles[i % roles.length];
-    const ch: CharRecord = { id: 'bot' + i, name: BOT_NAMES[i % BOT_NAMES.length], cls: role, level: 2 + (i % 3), xp: 0, gold: 0, created: 0, inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0,
+    const ch: CharRecord = { id: 'bot' + i, name: BOT_NAMES[i % BOT_NAMES.length], cls: role, level: 4 + (i % 3) * 3, xp: 0, gold: 0, created: 0, inventory: [], quests: [], sparks: [], deeds: [], kills: 0, deaths: 0, counters: {},
       appearance: { tint: [0xffffff, 0xffe2c8, 0xd8f0ff, 0xf0d8ff][i % 4], accent: [0x3fd0ff, 0xff7a3f, 0x8dff9a, 0xffd23f][i % 4], headgear: i % 2 === 0, cape: true, scale: 1, body: i % 2 ? 'f' : 'm' } };
     this.addPlayer(null, 'bot', ch, { role, goal: null, target: 0, retreat: false, nextThink: 0, nextChat: this.o.now() + 30 + i * 20 });
   }
-  private spawnMonster(kind: MonsterKind, x: number, z: number): Monster {
+  spawnMonster(kind: MonsterKind, x: number, z: number, zone = 'capital'): Monster {
     const def = MONSTERS[kind];
     const id = this.nextId++;
-    const m: Monster = { id, type: 'm', s: newCharState(x, z, this.rnd() * 6.28), hp: def.hp, mhp: def.hp, anim: 'idle', animUntil: 0, name: def.name, model: def.kind, dead: false, stunUntil: 0, level: def.level,
+    const m: Monster = { id, type: 'm', s: newCharState(x, z, this.rnd() * 6.28), hp: def.hp, mhp: def.hp, anim: 'idle', animUntil: 0, name: def.name, model: def.kind, dead: false, stunUntil: 0, level: def.level, st: newStatus(), zone,
       def, home: { x, z }, ai: 'idle', target: 0, nextAttack: 0, wander: null, aiTimer: this.rnd() * 3, respawnAt: 0, fleeUntil: 0, lastHitBy: 0, threat: new Map() };
     this.ents.set(id, m);
     return m;
   }
   private spawnNpc(def: NpcDef) {
     const id = this.nextId++;
-    const n: Npc = { id, type: 'n', s: newCharState(def.work.x, def.work.z, def.work.yaw ?? 0), hp: 1, mhp: 1, anim: 'idle', animUntil: 0, name: def.name, model: def.key, dead: false, stunUntil: 0, level: 30,
+    const n: Npc = { id, type: 'n', s: newCharState(def.work.x, def.work.z, def.work.yaw ?? 0), hp: 1, mhp: 1, anim: 'idle', animUntil: 0, name: def.name, model: def.key, dead: false, stunUntil: 0, level: 30, st: newStatus(), zone: 'capital',
       def, bt: npcTree(this), talkTo: 0, talkUntil: 0, patrolIdx: 0, hidden: false, goal: null };
     this.ents.set(id, n);
   }
@@ -310,9 +344,11 @@ export class Game {
       this.broadcastAll({ type: 'notice', text: this.weather === 'clear' ? 'The clouds part over the Ancient Forest.' : this.weather === 'storm' ? 'A storm rolls down from the Tower…' : 'Rain begins to fall.', style: 'info' });
     }
     for (const p of this.players.values()) this.tickPlayer(p, now, dt);
-    for (const e of this.ents.values()) {
+    for (const e of [...this.ents.values()]) {
+      if (!e.dead) this.combat.tickStatus(e, now);
       if (e.type === 'm') this.tickMonster(e as Monster, now, dt);
       else if (e.type === 'n') this.tickNpc(e as Npc, now, dt);
+      else if (e.type === 's') this.combat.tickSummon(e as Summon, now, dt);
     }
     this.tickProjectiles(now, dt);
     this.sendSnapshots(now);
@@ -332,7 +368,7 @@ export class Game {
       const inp = p.inputs[0];
       if (!p.brain && !p.budget.take(now, inp.dt)) break;
       p.inputs.shift();
-      const mul = (p.casting ? 0.35 : 1) * (now < p.stunUntil ? 0 : 1) * classById(p.char.cls).spd;
+      const mul = this.moveMulOf(p, now);
       stepCharacter(p.s, inp, mul);
       p.lastSeq = inp.seq;
       if (++consumed > 30) break;
@@ -340,14 +376,15 @@ export class Game {
     if (p.inputs.length > 30) p.inputs.splice(0, p.inputs.length - 30); // drop stale backlog
     // anim state for others
     const sp = Math.hypot(p.s.vx, p.s.vz);
-    if (now > p.animUntil) p.anim = !p.s.grounded && !p.s.swimming ? (p.s.vy > 0 ? 'jump' : 'fall') : p.s.swimming ? 'swim' : sp > 4.8 ? 'sprint' : sp > 2.2 ? 'run' : sp > 0.25 ? 'walk' : 'idle';
+    if ((p.s.dg ?? 0) > 0) p.anim = 'roll';
+    else if (now > p.animUntil) p.anim = !p.s.grounded && !p.s.swimming ? (p.s.vy > 0 ? 'jump' : 'fall') : p.s.swimming ? 'swim' : sp > 4.8 ? 'sprint' : sp > 2.2 ? 'run' : sp > 0.25 ? 'walk' : 'idle';
     if (p.casting) {
       p.anim = 'cast';
-      if (now >= p.casting.until) this.finishCast(p, now);
+      if (now >= p.casting.until) this.combat.finishCast(p, now);
     }
     // regen
     const outOfCombat = now - p.lastHurt > 6;
-    p.mp = Math.min(p.stats.maxMp, p.mp + dt * (outOfCombat ? 6 : 2.5));
+    p.mp = Math.min(p.stats.maxMp, p.mp + dt * (outOfCombat ? 6 : 2.5) * p.stats.mpRegen);
     p.hp = Math.min(p.mhp, p.hp + dt * (outOfCombat ? p.mhp * 0.025 : 0));
     // fell out of the world? (should never happen; belt and braces)
     if (p.s.y < heightAt(p.s.x, p.s.z) - 2 || !isFinite(p.s.x)) { p.s = newCharState(SPAWN.x, SPAWN.z); }
@@ -362,195 +399,105 @@ export class Game {
     }
   }
 
-  // ------------------------------------------------------------------ combat
-  private basicAttack(p: Player, yaw: number, target: number | undefined, now: number) {
-    if (p.dead || now < p.attackReadyAt || p.casting) return;
-    p.attackReadyAt = now + BASIC_ATTACK.cooldown;
-    p.s.yaw = yaw;
-    const cls = classById(p.char.cls);
-    const ranged = cls.weapon === 'bow' || cls.weapon === 'staff';
-    p.anim = ranged ? 'shoot' : 'attack';
-    p.animUntil = now + 0.6;
-    this.broadcastNear(p.s.x, p.s.z, 150, { type: 'fx', kind: 'attack', src: p.id, x: p.s.x, y: p.s.y, z: p.s.z });
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-    let best: Ent | null = null, bestD = 1e9;
-    for (const e of this.ents.values()) {
-      if (e.type !== 'm' || e.dead) continue;
-      const dx = e.s.x - p.s.x, dz = e.s.z - p.s.z, d = Math.hypot(dx, dz);
-      const range = ranged ? BASIC_ATTACK.rangedRange : BASIC_ATTACK.range + 0.6;
-      if (d > range) continue;
-      const ang = Math.acos(clamp((dx * fx + dz * fz) / Math.max(d, 1e-3), -1, 1));
-      const isTarget = e.id === target;
-      if (!isTarget && ang > (ranged ? 0.35 : BASIC_ATTACK.arc / 2) && d > 1.2) continue;
-      if (ranged && !hasLineOfSight(p.s.x, p.s.y + 1.4, p.s.z, e.s.x, e.s.y + 1.1, e.s.z)) continue;
-      const score = d + (isTarget ? -100 : 0);
-      if (score < bestD) { bestD = score; best = e; }
-    }
-    if (best) {
-      const delay = ranged ? 0.25 : 0.2;
-      const tgt = best;
-      setTimeout(() => {
-        if (tgt.dead || p.dead) return;
-        this.damage(p, tgt, cls.weapon === 'staff' ? p.stats.mag * 0.7 : p.stats.atk, BASIC_ATTACK.power, 'physical', this.o.now());
-      }, delay * 1000);
-    }
-  }
+  /** The exact speed multiplier used to simulate this player's inputs (sent to the client as SelfState.sm). */
+  moveMulOf(p: Player, now: number) { return Math.round((p.casting ? 0.35 : 1) * this.combat.moveMul(p, now) * classById(p.char.cls).spd * p.stats.spd * 1000) / 1000; }
 
-  private startCast(p: Player, spellId: string, target: number | undefined, yaw: number, aim: { x: number; y: number; z: number } | undefined, now: number) {
-    const sp = spellById(spellId);
-    if (!sp || p.dead || p.casting) return;
-    const chk = canCast(now, p.mp, sp, p.cds);
-    if (!chk.ok) { p.conn?.send({ type: 'fx', kind: 'castfail', src: p.id, spell: sp.id, text: chk.reason === 'mana' ? 'Not enough mana' : 'Not ready yet' }); return; }
-    p.mp -= sp.mana;
-    p.cds[sp.id] = now + sp.cooldown + sp.castTime;
-    p.s.yaw = yaw;
-    p.casting = { spell: sp.id, until: now + sp.castTime, target, aim, yaw };
-    this.broadcastNear(p.s.x, p.s.z, 200, { type: 'fx', kind: 'cast', src: p.id, spell: sp.id, x: p.s.x, y: p.s.y, z: p.s.z });
-  }
-
-  private finishCast(p: Player, now: number) {
-    const c = p.casting!;
-    p.casting = null;
-    const sp = spellById(c.spell)!;
-    p.anim = 'castshoot';
-    p.animUntil = now + 0.5;
-    const ox = p.s.x, oy = p.s.y + 1.4, oz = p.s.z;
-    const poi = poiAt(p.s.x, p.s.z);
-    this.onCast(p, sp.id, poi);
-    if (sp.kind === 'nova') {
-      this.broadcastNear(ox, oz, 200, { type: 'fx', kind: 'spell', src: p.id, spell: sp.id, x: p.s.x, y: p.s.y, z: p.s.z });
-      for (const e of this.ents.values()) {
-        if (e.dead || Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z) > sp.radius) continue;
-        if (e.type === 'p' || e.type === 'b') {
-          const pl = e as Player;
-          const heal = Math.round(p.stats.mag * 2.4 * sp.power + 12);
-          pl.hp = Math.min(pl.mhp, pl.hp + heal);
-          this.broadcastNear(e.s.x, e.s.z, 150, { type: 'fx', kind: 'heal', dst: e.id, amount: heal, x: e.s.x, y: e.s.y + 2, z: e.s.z });
-        } else if (e.type === 'm') {
-          e.stunUntil = now + 2.2;
-          this.damage(p, e, p.stats.mag, sp.power * 0.7, sp.element, now);
-        }
-      }
-      return;
-    }
-    // aim: explicit target if valid, else aim point, else straight ahead
-    let tx: number, ty: number, tz: number;
-    const tgt = c.target ? this.ents.get(c.target) : undefined;
-    if (tgt && !tgt.dead && tgt.type === 'm' && Math.hypot(tgt.s.x - p.s.x, tgt.s.z - p.s.z) <= sp.range + 2) { tx = tgt.s.x; ty = tgt.s.y + 1; tz = tgt.s.z; }
-    else if (c.aim && Math.hypot(c.aim.x - ox, c.aim.z - oz) <= sp.range + 2) { tx = c.aim.x; ty = c.aim.y; tz = c.aim.z; }
-    else { tx = ox - Math.sin(c.yaw) * sp.range; tz = oz - Math.cos(c.yaw) * sp.range; ty = heightAt(tx, tz) + 1; }
-    if (sp.kind === 'projectile') {
-      const dx = tx - ox, dy = ty - oy, dz = tz - oz, d = Math.hypot(dx, dy, dz) || 1;
-      this.projectiles.push({ owner: p.id, spell: sp.id, x: ox, y: oy, z: oz, dx: dx / d, dy: dy / d, dz: dz / d, speed: 26, left: Math.min(sp.range, d + 2) });
-      this.broadcastNear(ox, oz, 220, { type: 'fx', kind: 'spell', src: p.id, spell: sp.id, x: ox, y: oy, z: oz, tx, ty, tz });
-    } else {
-      // strike: lightning needs line of sight to the point
-      const dx = tx - ox, dy = ty - oy, dz = tz - oz, d = Math.hypot(dx, dy, dz) || 1;
-      const hitD = raycastWorld(ox, oy, oz, dx / d, dy / d, dz / d, d, new Set(['bound']));
-      const k = Math.min(1, hitD / d);
-      const sx = ox + dx * k, sz = oz + dz * k, sy = heightAt(sx, sz);
-      this.broadcastNear(sx, sz, 220, { type: 'fx', kind: 'spell', src: p.id, spell: sp.id, x: ox, y: oy, z: oz, tx: sx, ty: sy, tz: sz });
-      this.aoe(p, sp.id, sx, sy, sz, now);
-      if (this.weather === 'storm' && sp.id === 'fulgur') this.spark(p, 'storm_fulgur');
-    }
-  }
-
-  private aoe(p: Player, spellId: string, x: number, y: number, z: number, now: number) {
-    const sp = spellById(spellId)!;
-    for (const e of this.ents.values()) {
-      if (e.type !== 'm' || e.dead) continue;
-      const d = Math.hypot(e.s.x - x, e.s.y + 1 - y, e.s.z - z);
-      if (d > sp.radius) continue;
-      if (!hasLineOfSight(x, y + 0.5, z, e.s.x, e.s.y + 1, e.s.z)) continue; // walls block blast
-      const falloff = 1 - 0.5 * (d / sp.radius);
-      this.damage(p, e, p.stats.mag, sp.power * falloff, sp.element, now);
-      if (spellId === 'ignis' && (e as Monster).def?.kind === 'warrior' && poiAt(x, z)?.id === 'ruins') this.spark(p, 'ruins_ignis');
-    }
-    if (spellId === 'ignis' && poiAt(x, z)?.id === 'shrine' && this.weather !== 'clear' && this.isNight()) this.spark(p, 'shrine_ignis_rain_night');
-  }
+  // ------------------------------------------------------------------ combat (skills live in combat.ts)
+  onCast(p: Player, spell: string) { this.onCastQuest(p, spell, poiAt(p.s.x, p.s.z)); }
 
   private tickProjectiles(now: number, dt: number) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
+      const owner = this.players.get(pr.owner);
+      if (!owner) { this.projectiles.splice(i, 1); continue; }
+      if (pr.homing) { // spirit bolts curve toward their target
+        const t = this.ents.get(pr.homing);
+        if (t && !t.dead) { const dx = t.s.x - pr.x, dy = t.s.y + 1 - pr.y, dz = t.s.z - pr.z, d = Math.hypot(dx, dy, dz) || 1; const k = Math.min(1, dt * 6); pr.dx += (dx / d - pr.dx) * k; pr.dy += (dy / d - pr.dy) * k; pr.dz += (dz / d - pr.dz) * k; const l = Math.hypot(pr.dx, pr.dy, pr.dz) || 1; pr.dx /= l; pr.dy /= l; pr.dz /= l; }
+      }
       const step = pr.speed * dt;
       const hitWorld = raycastWorld(pr.x, pr.y, pr.z, pr.dx, pr.dy, pr.dz, step, new Set(['bound']));
       let hit = hitWorld < step;
       let adv = Math.min(step, hitWorld);
-      // entity hit along the segment
       for (const e of this.ents.values()) {
-        if (e.type !== 'm' || e.dead) continue;
+        if (!this.combat.isEnemy(owner, e) || e.zone !== owner.zone) continue;
         const ex = e.s.x - pr.x, ey = e.s.y + 1 - pr.y, ez = e.s.z - pr.z;
         const t = clamp(ex * pr.dx + ey * pr.dy + ez * pr.dz, 0, adv);
         const cx = pr.x + pr.dx * t - e.s.x, cy = pr.y + pr.dy * t - (e.s.y + 1), cz = pr.z + pr.dz * t - e.s.z;
-        if (cx * cx + cy * cy + cz * cz < 1.0) { hit = true; adv = t; break; }
+        const rr = (e as Monster).def?.scale ? 1.0 * (e as Monster).def.scale! : 1.0;
+        if (cx * cx + cy * cy + cz * cz < rr * rr) { hit = true; adv = t; break; }
       }
       pr.x += pr.dx * adv; pr.y += pr.dy * adv; pr.z += pr.dz * adv; pr.left -= adv;
       if (hit || pr.left <= 0) {
         this.projectiles.splice(i, 1);
-        const owner = this.players.get(pr.owner);
         this.broadcastNear(pr.x, pr.z, 220, { type: 'fx', kind: 'hit', spell: pr.spell, x: pr.x, y: pr.y, z: pr.z });
-        if (owner) this.aoe(owner, pr.spell, pr.x, pr.y, pr.z, now);
+        const sp = spellById(pr.spell);
+        if (sp) this.combat.areaHit(owner, sp, pr.power, pr.stat, pr.x, pr.y, pr.z, now);
       }
     }
   }
 
-  private damage(src: Ent, dst: Ent, atk: number, power: number, element: import('../../shared/combat').Element, now: number) {
+  kill(src: Ent, dst: Ent, now: number) {
     if (dst.dead) return;
-    const isMon = dst.type === 'm';
-    const def = isMon ? (dst as Monster).def.def : (dst as Player).stats.def;
-    const weakTo = isMon ? (dst as Monster).def.weakTo : undefined;
-    const r = computeDamage({ atk, power, def, element, weakTo, roll: this.rnd(), critRoll: this.rnd() });
-    dst.hp -= r.dmg;
-    if (dst.anim !== 'cast') { dst.anim = 'hit'; dst.animUntil = now + 0.35; }
-    this.broadcastNear(dst.s.x, dst.s.z, 150, { type: 'fx', kind: 'hit', src: src.id, dst: dst.id, amount: r.dmg, crit: r.crit, weak: r.weak, x: dst.s.x, y: dst.s.y + 2.1, z: dst.s.z });
-    if (isMon) {
-      const m = dst as Monster;
-      m.threat.set(src.id, (m.threat.get(src.id) ?? 0) + r.dmg);
-      m.lastHitBy = src.id;
-      if (m.ai === 'idle' || m.ai === 'patrol' || m.ai === 'return') { m.ai = 'chase'; m.target = src.id; }
-    } else {
-      (dst as Player).lastHurt = now;
-      if ((dst as Player).casting && this.rnd() < 0.25) { (dst as Player).casting = null; }
-    }
-    if (dst.hp <= 0) this.kill(src, dst, now);
-  }
-
-  private kill(src: Ent, dst: Ent, now: number) {
     dst.hp = 0;
     dst.dead = true;
     dst.anim = 'death';
+    dst.st.dots = []; dst.st.hots = [];
     this.broadcastNear(dst.s.x, dst.s.z, 200, { type: 'fx', kind: 'death', src: src.id, dst: dst.id, x: dst.s.x, y: dst.s.y, z: dst.s.z });
+    const killer = this.combat.ownerOf(src) ?? src;
+    if (dst.type === 's') { this.removeEnt(dst.id); return; }
     if (dst.type === 'm') {
       const m = dst as Monster;
-      m.respawnAt = now + 22 + this.rnd() * 10;
+      m.respawnAt = now + (m.def.boss ? 240 : 22 + this.rnd() * 10);
+      m.enraged = false;
       // XP to everyone who did damage (party-friendly), killer gets loot
       for (const [pid] of m.threat) {
         const p = this.players.get(pid);
         if (!p || p.dead) continue;
-        this.giveXp(p, m.def.xp * (pid === src.id ? 1 : 0.6));
-        if (pid === src.id) this.onKill(p, m, now);
+        this.giveXp(p, m.def.xp * (pid === killer.id ? 1 : 0.6));
+        this.progress.addRep(p, m.def.faction ?? 'capital', m.def.boss ? 60 : 3);
+        if (pid === killer.id) this.onKill(p, m, now);
+        if (m.def.boss) { p.char.counters.bosses = (p.char.counters.bosses ?? 0) + 1; this.progress.checkTitles(p); }
       }
+      if (m.def.boss) this.broadcastAll({ type: 'chat', from: 'World', text: `${killer.name} and allies have slain ${m.def.name}!`, channel: 'world' });
       m.threat.clear();
+      this.onMonsterKilled(m, killer, now);
     } else {
       const p = dst as Player;
       p.casting = null;
       p.char.deaths++;
       p.streak = 0;
       p.respawnAt = now + 8;
-      p.conn?.send({ type: 'died', by: src.name });
+      for (const s of [...this.ents.values()]) if (s.type === 's' && (s as Summon).owner === p.id) this.removeEnt(s.id);
+      const pen = p.type === 'p' ? this.combat.deathPenalty(p) : { xpLost: 0, goldLost: 0 };
+      p.conn?.send({ type: 'died', by: src.name, xpLost: pen.xpLost, goldLost: pen.goldLost, at: this.shrineName(p), wait: 8 });
+      this.progress.checkTitles(p);
       this.markDirty();
     }
   }
+  /** hook for later systems (world bosses, tower, quests) */
+  onMonsterKilled(m: Monster, killer: Ent, now: number) { void m; void killer; void now; }
+
+  /** Where a fallen player comes back (the last shrine they touched). */
+  shrineName(p: Player) { void p; return 'the Gate of Dawn shrine'; }
+  shrinePos(p: Player): { x: number; z: number; yaw: number } { void p; return SPAWN; }
 
   private respawnPlayer(p: Player) {
     p.dead = false;
-    p.hp = Math.round(p.mhp * 0.7);
+    p.hp = Math.round(p.mhp * 0.6);
     p.mp = Math.round(p.stats.maxMp * 0.5);
-    p.s = newCharState(SPAWN.x + (this.rnd() - 0.5) * 4, SPAWN.z + (this.rnd() - 0.5) * 3, SPAWN.yaw);
+    const sp = this.shrinePos(p);
+    p.s = newCharState(sp.x + (this.rnd() - 0.5) * 4, sp.z + (this.rnd() - 0.5) * 3, sp.yaw);
     p.inputs.length = 0;
     p.anim = 'idle';
-    // high-stakes death without permadeath: lose 10% of current-level XP
-    p.char.xp = Math.floor(p.char.xp * 0.9);
+    p.st = newStatus();
+    p.stunUntil = 0;
+    // soul-weary: −15 % damage dealt and +10 % taken for 60 s (see combat.damage)
+    if (p.type === 'p') { p.weakUntil = this.o.now() + 60; p.st.buffs.push({ atk: -0.15, def: -0.1, mag: -0.15, spd: 0, crit: 0, lifesteal: 0, until: this.o.now() + 60, src: 'soulweary' }); p.conn?.send({ type: 'notice', text: 'Soul-Weary: weaker for 60 s', style: 'warn' }); }
+  }
+  /** Brought back on the spot by an ally (Resurrection). */
+  revivePlayer(p: Player, frac: number) {
+    p.dead = false; p.hp = Math.round(p.mhp * frac); p.anim = 'idle'; p.st = newStatus(); p.inputs.length = 0;
+    p.conn?.send({ type: 'notice', text: 'You were revived!', style: 'levelup' });
   }
 
   private giveXp(p: Player, amount: number) {
@@ -563,6 +510,11 @@ export class Game {
       this.broadcastNear(p.s.x, p.s.z, 200, { type: 'fx', kind: 'levelup', src: p.id, x: p.s.x, y: p.s.y, z: p.s.z, amount: p.char.level });
       p.conn?.send({ type: 'notice', text: `LEVEL ${p.char.level}`, style: 'levelup' });
       this.worldEvent(`${p.name} reached level ${p.char.level}`);
+      const unlocked = SKILLS.filter((s) => s.cls === p.char.cls && s.unlock > before && s.unlock <= p.char.level && s.slot !== 5);
+      for (const s of unlocked) p.conn?.send({ type: 'notice', text: `New skill: ${s.name} · ${s.title}`, style: 'rank' });
+      if (p.char.level >= 20 && before < 20) p.conn?.send({ type: 'notice', text: 'Advanced classes unlocked — open the Hero panel (P)', style: 'rank' });
+      this.progress.send(p);
+      this.progress.checkTitles(p);
     }
     if (before !== p.char.level || amount > 0) this.markDirty();
   }
@@ -570,26 +522,37 @@ export class Game {
   // ------------------------------------------------------------------ monster AI (state machine)
   private tickMonster(m: Monster, now: number, dt: number) {
     if (m.dead) {
+      if (m.noRespawn) { if (now > m.respawnAt - 15) this.removeEnt(m.id); return; }
       if (now > m.respawnAt) {
-        m.dead = false; m.hp = m.mhp; m.s = newCharState(m.home.x + (this.rnd() - 0.5) * 8, m.home.z + (this.rnd() - 0.5) * 8); m.ai = 'idle'; m.anim = 'spawn'; m.animUntil = now + 1.6;
+        m.dead = false; m.hp = m.mhp; m.s = newCharState(m.home.x + (this.rnd() - 0.5) * 8, m.home.z + (this.rnd() - 0.5) * 8); m.ai = 'idle'; m.anim = 'spawn'; m.animUntil = now + 1.6; m.st = newStatus(); m.enraged = false;
       }
       return;
     }
+    if (!this.zoneActive(m.zone)) return; // nobody here: the zone sleeps
     const night = this.isNight();
     const aggroR = m.def.aggro * (night ? 1.25 : 1) * (this.weather !== 'clear' ? 0.85 : 1);
     let mx = 0, mz = 0, yaw = m.s.yaw, walk = false;
-    const tgt = m.target ? this.players.get(m.target) : undefined;
+    let tgt = m.target ? this.ents.get(m.target) : undefined;
+    if (tgt && (tgt.dead || tgt.zone !== m.zone || !(tgt.type === 'p' || tgt.type === 'b' || tgt.type === 's'))) { tgt = undefined; m.target = 0; }
     const stunned = now < m.stunUntil;
+    const rooted = now < m.st.rootUntil;
     m.aiTimer -= dt;
     const homeD = Math.hypot(m.s.x - m.home.x, m.s.z - m.home.z);
+    const leash = m.def.boss ? 70 : 45;
+    // threat: every second, the monster turns on whoever hurt it most (unless taunted)
+    if (m.threat.size && this.tickN % 20 === m.id % 20 && now > m.st.tauntUntil) {
+      let best = 0, bv = -1;
+      for (const [id, v] of m.threat) { const e = this.ents.get(id); if (!e || e.dead || e.zone !== m.zone) { m.threat.delete(id); continue; } if (v > bv) { bv = v; best = id; } }
+      if (best && (m.ai === 'chase' || m.ai === 'attack')) m.target = best;
+    }
+    if (m.def.boss && !stunned) this.bossTick(m, now);
     switch (m.ai) {
       case 'idle':
       case 'patrol': {
-        // look for prey
         if (m.aiTimer <= 0 || this.tickN % 4 === 0) {
-          let best: Player | null = null, bd = aggroR;
-          for (const p of this.players.values()) {
-            if (p.dead) continue;
+          let best: Ent | null = null, bd = aggroR;
+          for (const p of this.ents.values()) {
+            if (p.dead || p.zone !== m.zone || !(p.type === 'p' || p.type === 'b' || p.type === 's')) continue;
             const d = Math.hypot(p.s.x - m.s.x, p.s.z - m.s.z);
             if (d < bd && hasLineOfSight(m.s.x, m.s.y + 1.5, m.s.z, p.s.x, p.s.y + 1.5, p.s.z)) { bd = d; best = p; }
           }
@@ -605,25 +568,28 @@ export class Game {
       }
       case 'chase':
       case 'attack': {
-        if (!tgt || tgt.dead || homeD > 45) { m.ai = 'return'; m.target = 0; break; }
+        if (!tgt || tgt.dead || homeD > leash) { m.ai = 'return'; m.target = 0; break; }
         if (m.hp < m.mhp * 0.2 && m.def.kind === 'minion' && now > m.fleeUntil + 20) { m.ai = 'flee'; m.fleeUntil = now + 3.5; break; }
         const dx = tgt.s.x - m.s.x, dz = tgt.s.z - m.s.z, d = Math.hypot(dx, dz);
         yaw = Math.atan2(-dx, -dz);
-        const inRange = d <= m.def.attackRange && (!m.def.ranged || hasLineOfSight(m.s.x, m.s.y + 1.5, m.s.z, tgt.s.x, tgt.s.y + 1.2, tgt.s.z));
+        const reach = m.def.attackRange + (m.def.scale ? (m.def.scale - 1) * 0.8 : 0);
+        const inRange = d <= reach && (!m.def.ranged || hasLineOfSight(m.s.x, m.s.y + 1.5, m.s.z, tgt.s.x, tgt.s.y + 1.2, tgt.s.z));
         if (inRange) {
           m.ai = 'attack';
           if (m.def.ranged && d < 5) { mz = -0.6; } // kite
           if (now >= m.nextAttack && !stunned) {
-            m.nextAttack = now + m.def.attackCd;
+            m.nextAttack = now + m.def.attackCd * (m.enraged ? 0.7 : 1);
             m.anim = m.def.ranged ? 'castshoot' : 'attack';
             m.animUntil = now + 0.8;
             this.broadcastNear(m.s.x, m.s.z, 150, { type: 'fx', kind: 'attack', src: m.id, dst: tgt.id, x: m.s.x, y: m.s.y, z: m.s.z, spell: m.def.ranged ? 'bolt' : undefined });
             const target = tgt;
+            const windup = m.def.ranged ? 650 : 480;
             setTimeout(() => {
-              if (m.dead || target.dead || now < m.stunUntil) return;
+              const t2 = this.o.now();
+              if (m.dead || target.dead || t2 < m.stunUntil) return;
               const dd = Math.hypot(target.s.x - m.s.x, target.s.z - m.s.z);
-              if (dd <= m.def.attackRange + 1.2) this.damage(m, target, m.def.atk, 1, m.def.ranged ? 'darkness' : 'physical', this.o.now());
-            }, m.def.ranged ? 650 : 420);
+              if (dd <= reach + 1.2) this.combat.damage(m, target, m.def.atk, 1, m.def.ranged ? (m.def.element ?? 'darkness') : 'physical', t2, { melee: !m.def.ranged });
+            }, windup);
           }
         } else { m.ai = 'chase'; mz = 1; }
         break;
@@ -642,20 +608,72 @@ export class Game {
         break;
       }
     }
-    if (stunned) { mz = 0; mx = 0; }
-    // steer around obstacles with a short feeler
+    if (stunned || rooted) { mz = 0; mx = 0; }
     if (mz !== 0) {
       const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
       const ahead = raycastWorld(m.s.x, m.s.y + 0.8, m.s.z, fx, 0, fz, 2.2, undefined);
       if (ahead < 2.2) yaw += (m.id % 2 ? 1 : -1) * 0.9;
     }
-    const speedMul = (walk ? 0.45 : 1) * (m.def.speed / PHYS.RUN) * (m.ai === 'flee' ? 1.15 : 1);
+    const slow = now < m.st.slowUntil ? m.st.slowMul : 1;
+    const speedMul = (walk ? 0.45 : 1) * (m.def.speed / PHYS.RUN) * (m.ai === 'flee' ? 1.15 : 1) * slow * (m.enraged ? 1.2 : 1);
     stepSub(m.s, { seq: 0, mx, mz, yaw, jump: false, sprint: false, walk: false, dt }, speedMul);
     if (mz === 0 && mx === 0 && m.ai === 'attack' && tgt) m.s.yaw = Math.atan2(-(tgt.s.x - m.s.x), -(tgt.s.z - m.s.z));
     if (now > m.animUntil) {
       const sp = Math.hypot(m.s.vx, m.s.vz);
       m.anim = stunned ? 'hit' : sp > 1.8 ? 'run' : sp > 0.3 ? 'walk' : m.ai === 'attack' ? 'combat' : 'idle';
     }
+  }
+
+  /** Field/tower bosses: enrage under 30 % HP and a telegraphed special every few seconds
+   *  (slam = ring around the boss, volley = bolts at everyone near, summon = adds, charge = rush). */
+  private bossTick(m: Monster, now: number) {
+    if (!m.enraged && m.hp < m.mhp * 0.3 && m.def.specials?.includes('enrage')) {
+      m.enraged = true;
+      this.broadcastNear(m.s.x, m.s.z, 200, { type: 'notice', text: `${m.def.name} is ENRAGED!`, style: 'warn' });
+    }
+    if (m.ai !== 'attack' && m.ai !== 'chase') return;
+    if (now < (m.specialAt ?? 0)) return;
+    m.specialAt = now + (m.enraged ? 6 : 9) + this.rnd() * 3;
+    const sp = (m.def.specials ?? []).filter((s) => s !== 'enrage');
+    if (!sp.length) return;
+    const kind = sp[Math.floor(this.rnd() * sp.length)];
+    const R = kind === 'slam' ? 7 : kind === 'breath' ? 11 : 0;
+    m.anim = 'castshoot'; m.animUntil = now + 1.3;
+    // telegraph: the client draws the danger zone; damage lands after 1.2 s (dodge it!)
+    this.broadcastNear(m.s.x, m.s.z, 200, { type: 'fx', kind: 'cast', src: m.id, spell: 'boss_' + kind, x: m.s.x, y: m.s.y, z: m.s.z, amount: R, text: kind });
+    const yaw0 = m.s.yaw;
+    setTimeout(() => {
+      const t2 = this.o.now();
+      if (m.dead) return;
+      const victims = [...this.ents.values()].filter((e) => !e.dead && e.zone === m.zone && (e.type === 'p' || e.type === 'b' || e.type === 's'));
+      if (kind === 'slam' || kind === 'breath') {
+        this.broadcastNear(m.s.x, m.s.z, 200, { type: 'fx', kind: 'spell', src: m.id, spell: 'boss_' + kind, x: m.s.x, y: m.s.y, z: m.s.z, amount: R });
+        const fx = -Math.sin(yaw0), fz = -Math.cos(yaw0);
+        for (const v of victims) {
+          const dx = v.s.x - m.s.x, dz = v.s.z - m.s.z, d = Math.hypot(dx, dz);
+          if (d > R) continue;
+          if (kind === 'breath' && (dx * fx + dz * fz) / Math.max(d, 0.01) < 0.5) continue;
+          if (this.combat.damage(m, v, m.def.atk, 1.8, kind === 'breath' ? (m.def.element ?? 'fire') : 'earth', t2, {})) this.combat.hostileEffects(m, v, { knock: 3, stun: kind === 'slam' ? 0.6 : 0 }, t2, m.def.atk);
+        }
+      } else if (kind === 'volley') {
+        for (const v of victims) if (Math.hypot(v.s.x - m.s.x, v.s.z - m.s.z) < 28) {
+          this.broadcastNear(m.s.x, m.s.z, 200, { type: 'fx', kind: 'attack', src: m.id, dst: v.id, x: m.s.x, y: m.s.y, z: m.s.z, spell: 'bolt' });
+          this.combat.damage(m, v, m.def.atk, 0.9, m.def.element ?? 'darkness', t2, {});
+        }
+      } else if (kind === 'summon' && m.def.adds) {
+        const alive = [...this.ents.values()].filter((e) => e.type === 'm' && (e as Monster).summonedBy === m.id && !e.dead).length;
+        for (let i = alive; i < 3; i++) { const a = this.spawnMonster(m.def.adds, m.s.x + (this.rnd() - 0.5) * 8, m.s.z + (this.rnd() - 0.5) * 8, m.zone); a.summonedBy = m.id; a.noRespawn = true; a.ai = 'chase'; a.target = m.target; }
+      } else if (kind === 'charge') {
+        const t = this.ents.get(m.target);
+        if (t && !t.dead) {
+          const dx = t.s.x - m.s.x, dz = t.s.z - m.s.z, d = Math.hypot(dx, dz) || 1;
+          const fx0 = m.s.x, fz0 = m.s.z;
+          sweepDash(m.s, (dx / d) * Math.max(0, d - 1.5), (dz / d) * Math.max(0, d - 1.5));
+          this.broadcastNear(m.s.x, m.s.z, 200, { type: 'fx', kind: 'dash', src: m.id, spell: 'boss_charge', x: fx0, y: m.s.y, z: fz0, tx: m.s.x, ty: m.s.y, tz: m.s.z });
+          for (const v of victims) if (Math.hypot(v.s.x - m.s.x, v.s.z - m.s.z) < 3.5) this.combat.damage(m, v, m.def.atk, 1.5, 'physical', t2, { melee: true });
+        }
+      }
+    }, 1200);
   }
 
   // ------------------------------------------------------------------ NPCs (behaviour trees + routines)
@@ -682,6 +700,7 @@ export class Game {
     else n.anim = n.goal?.anim ? animKey(n.goal.anim) : 'idle';
   }
 
+  zoneActive(zone: string) { void zone; return true; }
   isNight() { return this.worldTime < 5.5 || this.worldTime > 19.5; }
   timeOfDay() { const h = this.worldTime; return h < 5.5 ? 'deep night' : h < 7 ? 'dawn' : h < 11 ? 'morning' : h < 15 ? 'midday' : h < 18.5 ? 'afternoon' : h < 20 ? 'dusk' : 'night'; }
 
@@ -826,7 +845,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
     if (this.isNight()) this.advance(p, (s) => s.type === 'night' && s.target === poi.id);
   }
   private onTalk(p: Player, npcKey: string) { this.advance(p, (s) => s.type === 'talk' && s.target === npcKey); }
-  private onCast(p: Player, spell: string, poi: POI | null) {
+  private onCastQuest(p: Player, spell: string, poi: POI | null) {
     this.advance(p, (s) => s.type === 'cast' && s.target === spell && (!s.poi || s.poi === poi?.id));
     if (spell === 'lux' && poi?.id === 'shrine' && this.isNight()) this.spark(p, 'shrine_night_light');
   }
@@ -858,11 +877,11 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
       const yaw = Math.atan2(-(gx - p.s.x), -(gz - p.s.z));
       if (d <= stop + 0.5) {
         p.s.yaw = yaw;
-        if (cls.weapon === 'staff') {
-          const spell = SPELLS.find((s) => s.kind !== 'nova' && (p.cds[s.id] ?? 0) <= now && p.mp >= s.mana);
-          if (spell && !p.casting) this.startCast(p, spell.id, tgt.id, yaw, undefined, now);
-          else this.basicAttack(p, yaw, tgt.id, now);
-        } else this.basicAttack(p, yaw, tgt.id, now);
+        // use a ready class skill now and then, otherwise chain basic attacks
+        const ready = SKILLS.filter((s) => this.combat.knows(p, s) && s.slot !== 5 && (p.cds[s.id] ?? 0) <= now && p.mp >= s.mana + 10 && s.kind !== 'heal' && (s.range === 0 || s.range >= d));
+        const pick = ready.length && this.rnd() < 0.35 ? ready[Math.floor(this.rnd() * ready.length)] : null;
+        if (pick && !p.casting) this.combat.startCast(p, pick.id, tgt.id, yaw, undefined, now);
+        else this.combat.basicAttack(p, yaw, tgt.id, now);
       }
     } else if (b.goal) { gx = b.goal.x; gz = b.goal.z; stop = 1; }
     else return;
@@ -877,7 +896,9 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
 
   // ------------------------------------------------------------------ snapshots
   selfState(p: Player): SelfState {
-    return { hp: Math.round(p.hp), mhp: p.mhp, mp: Math.round(p.mp), mmp: p.stats.maxMp, xp: p.char.xp, xpNext: xpToNext(p.char.level), level: p.char.level, cds: p.cds, gold: p.char.gold };
+    const now = this.o.now();
+    return { hp: Math.round(p.hp), mhp: p.mhp, mp: Math.round(p.mp), mmp: p.stats.maxMp, xp: p.char.xp, xpNext: xpToNext(p.char.level), level: p.char.level, cds: p.cds, gold: p.char.gold,
+      sm: this.moveMulOf(p, now), sf: this.combat.statusFlags(p, now), sh: Math.round(p.st.shield), combo: now - p.combo.last < 1.7 ? p.combo.n : 0, zone: p.zone };
   }
   private sendSnapshots(now: number) {
     for (const p of this.players.values()) {
@@ -887,6 +908,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
       for (const e of this.ents.values()) {
         if (e.id === p.id) continue;
         if ((e as Npc).hidden) continue;
+        if (e.zone !== p.zone) continue;
         const d = Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z);
         if (d > 150) continue;
         seen.add(e.id);
@@ -897,14 +919,18 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
           ne.n = e.name; ne.k = e.model; ne.lv = e.level;
           if (e.type === 'p' || e.type === 'b') ne.ap = (e as Player).char.appearance;
           if (e.type === 'n') { ne.k = (e as Npc).def.key; }
+          if (e.type === 'm' && (e as Monster).def.boss) ne.bs = true;
         }
+        if ((e.type === 'p' || e.type === 'b') && (e as Player).char.title) ne.ti = titleById((e as Player).char.title!)?.name;
+        const sf = this.combat.statusFlags(e, now);
+        if (sf) ne.sf = sf;
         ents.push(ne);
       }
       const gone: number[] = [];
       for (const id of p.known) if (!seen.has(id)) gone.push(id);
       p.known = seen;
       const s = p.s;
-      p.conn.send({ type: 'snap', t: now, ack: p.lastSeq, me: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, g: s.grounded, sw: s.swimming, yaw: s.yaw }, ents, gone, self: this.selfState(p), worldTime: this.worldTime, weather: this.weather });
+      p.conn.send({ type: 'snap', t: now, ack: p.lastSeq, me: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, g: s.grounded, sw: s.swimming, yaw: s.yaw, dg: s.dg, dc: s.dc, ddx: s.ddx, ddz: s.ddz }, ents, gone, self: this.selfState(p), worldTime: this.worldTime, weather: this.weather });
     }
   }
 

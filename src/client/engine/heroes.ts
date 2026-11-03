@@ -8,7 +8,7 @@ export const UAL_CLIPS: Record<AnimName, string> = {
   idle: 'Idle_Loop', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', jump: 'Jump_Start', fall: 'Jump_Loop', land: 'Jump_Land',
   attack: 'Sword_Regular_A', attack2: 'Sword_Dash', shoot: 'OverhandThrow', cast: 'Idle_FoldArms_Loop', castshoot: 'Spell_Simple_Shoot', hit: 'Shield_Dash',
   death: 'Death01', talk: 'Yes', sit: 'Idle_FoldArms_Loop', channel: 'Idle_FoldArms_Loop', work: 'Sword_Regular_A', interact: 'Yes', cheer: 'Dance_Loop',
-  combat: 'Idle_Loop', taunt: 'Yes', spawn: 'Idle_Loop', swim: 'Swim_Loop', walkback: 'Walk_Loop',
+  combat: 'Idle_Loop', taunt: 'Yes', spawn: 'Idle_Loop', swim: 'Swim_Loop', walkback: 'Walk_Loop', roll: 'Roll', parry: 'Shield_Dash',
 };
 
 /** Natural ground speed (m/s) of each locomotion clip at timeScale 1, measured from the foot
@@ -19,9 +19,9 @@ export const UAL_GAIT: Partial<Record<AnimName, number>> = { walk: 0.96, run: 2.
 let ualClips: THREE.AnimationClip[] | null = null;
 export async function loadHeroClips() {
   if (ualClips) return ualClips;
-  const g = await loadGLTF('models/heroes/animations.glb');
+  const [g, roll] = await Promise.all([loadGLTF('models/heroes/animations.glb'), loadGLTF('models/heroes/anim_roll.glb').catch(() => null)]);
   // strip root-bone translation so every clip plays in place (movement comes from physics)
-  ualClips = g.animations.map((c) => {
+  ualClips = [...g.animations, ...(roll?.animations ?? [])].map((c) => {
     const k = c.clone();
     k.tracks = k.tracks.filter((t) => !(/^root\.position$/.test(t.name)));
     for (const t of k.tracks) if (/^pelvis\.position$/.test(t.name)) {
