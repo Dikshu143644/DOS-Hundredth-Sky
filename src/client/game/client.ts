@@ -16,6 +16,8 @@ import { INTERP_DELAY_MS, NetEntity, S2C, CharacterSummary, SelfState } from '..
 import { spellById, classById } from '../../shared/combat';
 import { skillForSlot, rankScale, SkillDef } from '../../shared/skills';
 import { heroPanel } from '../ui/hero';
+import { statusWindow, rankingsPanel } from '../ui/status';
+import type { StatusView } from '../../shared/protocol';
 import { worldMap, type MapState } from '../ui/travel';
 import { REGIONS } from '../../shared/regions';
 import type { ProgressView } from '../../shared/protocol';
@@ -76,6 +78,7 @@ export class GameClient {
     this.input.mountTouch(this.hud.root, (a) => this.action(a));
     net.onMessage = (m) => this.onMessage(m);
     this.sendPing();
+    net.send({ type: 'status' });
     if (joined.zone && joined.zone !== engine.zone) void this.enterZone(joined.zone, this.me.x, this.me.z, 0, joined.weather);
   }
 
@@ -109,6 +112,8 @@ export class GameClient {
       case 'map': this.mapState = m; this.mapUi?.update(m); break;
       case 'progress': this.progress = m.p; this.hud.setProgress(m.p); this.heroUi?.update(m.p, this.self.level); break;
       case 'kick': this.hud.notice(m.reason, 'warn'); break;
+      case 'status': this.status = m.s; this.hud.setFusions(m.s.fusions); this.hud.setRank(m.s.rank); this.statusUi?.update(m.s); break;
+      case 'leaderboard': this.ranksUi?.update(m); break;
     }
   }
 
@@ -287,6 +292,10 @@ export class GameClient {
     if (a === 'inventory') return this.openInventory();
     if (a === 'armory') return (window as any).__dos?.openArmory?.(this.equipment.weapon);
     if (a === 'hero') return this.openHero();
+    if (a === 'status') return this.openStatus();
+    if (a === 'ranks') return this.openRanks();
+    const fm = /^fusion([1-3])$/.exec(a);
+    if (fm) { const f = this.status?.fusions[Number(fm[1]) - 1]; if (!f) { this.hud.notice(this.status?.fusionSlots ? 'Fuse a skill in your Status window (U)' : 'Skill fusion awakens at level 5 (U)', 'warn'); return; } this.cast(f); return; }
     if (this.dead) return;
     if (a === 'target') return this.cycleTarget();
     if (a === 'interact') return this.interact();
@@ -357,6 +366,22 @@ export class GameClient {
   lastResync = 0;
   dodgeQueued = false;
   parryCdLocal = 0;
+  status: StatusView | null = null;
+  statusUi: ReturnType<typeof statusWindow> | null = null;
+  ranksUi: ReturnType<typeof rankingsPanel> | null = null;
+  openStatus() {
+    if (this.statusUi) { this.statusUi.close(); return; }
+    if (!this.status) { this.net.send({ type: 'status' }); return; }
+    document.exitPointerLock?.();
+    this.statusUi = statusWindow({ s: this.status, send: (m) => this.net.send(m), onClose: () => { this.statusUi = null; } });
+    this.net.send({ type: 'status' });
+  }
+  openRanks() {
+    if (this.ranksUi) { this.ranksUi.close(); return; }
+    document.exitPointerLock?.();
+    this.ranksUi = rankingsPanel({ onClose: () => { this.ranksUi = null; } });
+    this.net.send({ type: 'leaderboard' });
+  }
   openHero() {
     if (this.heroUi) { this.heroUi.close(); return; }
     document.exitPointerLock?.();

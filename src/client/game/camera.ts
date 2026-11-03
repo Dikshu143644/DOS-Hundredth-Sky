@@ -1,6 +1,50 @@
 import * as THREE from 'three';
 import { raycastWorld } from '../../shared/physics';
-import { heightAt } from '../../shared/world';
+import { heightAt, buildZone, ZONE } from '../../shared/world';
+
+/** Foliage the camera must not sit inside: tree canopies and big bushes as spheres, on a grid per zone. */
+type Blob = { x: number; y: number; z: number; r: number };
+const blobGrids = new Map<string, Map<string, Blob[]>>();
+const CELL = 12;
+function blobGrid(): Map<string, Blob[]> {
+  let g = blobGrids.get(ZONE);
+  if (g) return g;
+  g = new Map();
+  const zd = buildZone();
+  const add = (b: Blob) => { const k = Math.floor(b.x / CELL) + ',' + Math.floor(b.z / CELL); let l = g!.get(k); if (!l) g!.set(k, l = []); l.push(b); };
+  for (const t of zd.trees) {
+    if (t.type >= 7) continue; // dead trees: bare branches
+    const h = heightAt(t.x, t.z), s = t.s;
+    if (t.type === 4 || t.type === 5) add({ x: t.x, y: h + 2.4 * s, z: t.z, r: 1.45 * s });
+    else if (t.type === 6) add({ x: t.x, y: h + 3.8 * s, z: t.z, r: 1.4 * s });
+    else add({ x: t.x, y: h + 4.6 * s, z: t.z, r: 2.1 * s });
+  }
+  for (const b of zd.bushes) if (b.model === 'Bush_Large' || b.model === 'Bush') add({ x: b.x, y: b.y + 0.5 * b.s, z: b.z, r: 0.95 * b.s });
+  blobGrids.set(ZONE, g);
+  return g;
+}
+/** Distance along the ray to the first canopy it enters (ignores canopies the pivot is already inside). */
+export function foliageHit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number): number {
+  const g = blobGrid();
+  let best = max;
+  const ex = ox + dx * max, ez = oz + dz * max;
+  const x0 = Math.floor(Math.min(ox, ex) / CELL) - 1, x1 = Math.floor(Math.max(ox, ex) / CELL) + 1;
+  const z0 = Math.floor(Math.min(oz, ez) / CELL) - 1, z1 = Math.floor(Math.max(oz, ez) / CELL) + 1;
+  for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+    const l = g.get(cx + ',' + cz); if (!l) continue;
+    for (const b of l) {
+      const lx = ox - b.x, ly = oy - b.y, lz = oz - b.z;
+      const c = lx * lx + ly * ly + lz * lz - b.r * b.r;
+      if (c < 0) continue; // the hero stands inside this canopy: nothing to pull in front of
+      const bb = lx * dx + ly * dy + lz * dz;
+      const disc = bb * bb - c;
+      if (disc < 0) continue;
+      const t = -bb - Math.sqrt(disc);
+      if (t > 0 && t < best) best = t;
+    }
+  }
+  return best;
+}
 
 /** Third-person spring-arm camera: orbit with mouse/touch, smoothed follow, and collision —
  *  a ray from the shoulder pivot to the desired position against walls/trees/terrain pulls the
@@ -32,7 +76,8 @@ export class ThirdPersonCamera {
     const origin = this.pivot.clone().addScaledVector(right, 0.45);
     this.dist += (this.targetDist - this.dist) * Math.min(1, dt * 8);
     const hit = raycastWorld(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, this.dist + 0.3, new Set(['bound']));
-    const d = Math.max(0.6, Math.min(this.dist, hit - 0.35));
+    const leaf = foliageHit(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, this.dist + 0.3);
+    const d = Math.max(0.6, Math.min(this.dist, hit - 0.35, leaf - 0.25));
     const want = origin.clone().addScaledVector(dir, d);
     const g = heightAt(want.x, want.z) + 0.35;
     if (want.y < g) want.y = g;

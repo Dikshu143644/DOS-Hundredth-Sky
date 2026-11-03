@@ -65,7 +65,9 @@ async function joinAs(game: Game, id: number, user: string, cls: string) {
   c.send({ type: 'createChar', name: 'Hero' + id, cls, appearance: { tint: 0xffffff, accent: 0x55ccff, headgear: false, cape: true, scale: 1, body: 'f' } });
   const chars = await c.wait('chars');
   c.send({ type: 'join', charId: chars.list[0].id });
-  return { c, joined: await c.wait('joined') };
+  const joined = await c.wait('joined');
+  for (const p of game.players.values()) (p as any).hidden = false; // past the prologue for these tests
+  return { c, joined };
 }
 
 describe('server inventory & equipment', () => {

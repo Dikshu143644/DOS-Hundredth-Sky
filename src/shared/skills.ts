@@ -1,3 +1,4 @@
+import { FUSION_SKILLS } from './origin';
 /** Class skill kits, advanced classes, attributes, titles and reputation — pure data + rules
  *  shared by the authoritative server (which executes them) and the client (which shows them). */
 import type { ClassId, Element } from './combat';
@@ -35,7 +36,7 @@ export interface SkillDef {
   name: string; title: string; element: Element; incantation: string;
   castTime: number; cooldown: number; mana: number; range: number; radius: number; power: number;
   kind: SkillKind; fx: SkillFx; color: number; light: number; scale: 'atk' | 'mag';
-  arc?: number; ult?: boolean; adv?: string; desc: string; fx2?: SkillEffects;
+  arc?: number; ult?: boolean; adv?: string; desc: string; fx2?: SkillEffects; fusion?: boolean; chaos?: boolean;
   /** legacy alias so older client code that reads `key` keeps working */
   key: number;
 }
@@ -108,6 +109,9 @@ export const SKILLS: SkillDef[] = [
   mk({ id: 'barrier', cls: 'healer', slot: 5, unlock: 20, adv: 'saint', name: 'DIVINE BARRIER', title: 'Saint Ward', element: 'light', incantation: 'Nothing passes.', castTime: 0.6, cooldown: 25, mana: 35, range: 0, radius: 13, power: 0, kind: 'buff', fx: 'lux', color: 0xfff2c0, light: 9, scale: 'mag', desc: 'ADVANCED · Party shield worth 30 % max HP for 10 s.', e: { party: true, shield: 0.3, shieldDur: 10 } }),
   mk({ id: 'redux', cls: 'healer', slot: 5, unlock: 20, adv: 'oracle', name: 'TEMPUS REDUX', title: 'Oracle Rewind', element: 'time', incantation: 'Turn back, little hour.', castTime: 0.5, cooldown: 30, mana: 30, range: 26, radius: 0, power: 0, kind: 'heal', fx: 'ring', color: 0xd8c8ff, light: 8, scale: 'mag', desc: 'ADVANCED · Rewind an ally: big heal, cleanse, and their cooldowns tick 5 s.', e: { heal: 5, cleanse: true } }),
 ];
+// Phase 4 · reincarnation: fused skills (slot 7, key G) live in the same table so every lookup finds them.
+SKILLS.push(...FUSION_SKILLS);
+
 
 export const skillById = (id: string) => SKILLS.find((s) => s.id === id);
 export const ADVANCED: Record<ClassId, { id: string; name: string; desc: string; bonus: Partial<Record<'atk' | 'mag' | 'def' | 'hp' | 'mp' | 'crit', number>> }[]> = {
@@ -155,6 +159,7 @@ export const masteryBonus = (xp: number) => 1 + 0.015 * masteryLevel(xp);
 export interface TitleDef { id: string; name: string; desc: string; bonus?: string }
 export const TITLES: TitleDef[] = [
   { id: 'newcomer', name: 'Newcomer of the Gate', desc: 'Enter the world.' },
+  { id: 'reincarnated', name: 'The Reincarnated', desc: 'Cross the void and wake beneath the Hundredth Sky.' },
   { id: 'first_blood', name: 'First Blood', desc: 'Defeat your first monster.' },
   { id: 'slayer', name: 'Slayer', desc: 'Defeat 100 monsters.' },
   { id: 'reaper', name: 'Reaper of the Hollow', desc: 'Defeat 500 monsters.' },

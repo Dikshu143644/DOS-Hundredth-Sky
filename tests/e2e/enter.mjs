@@ -4,7 +4,7 @@ import { launch } from './browser.mjs';
 const [, , q, out, cmds, cls] = process.argv;
 const { browser, page, errors } = await launch({ viewport: { width: 1600, height: 900 } });
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text().slice(0, 200)); });
-await page.goto(`http://localhost:8787/?autotest=1&${q}`, { waitUntil: 'load' });
+await page.goto(`http://localhost:8787/?autotest=1&prologue=skip&${q}`, { waitUntil: 'load' });
 await page.waitForTimeout(300);
 await page.keyboard.press('Enter');
 await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });

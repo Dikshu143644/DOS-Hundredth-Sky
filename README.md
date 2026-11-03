@@ -33,7 +33,7 @@ Important NPCs and the Story Director talk through any OpenAI-compatible endpoin
 
 ## Phase 4: the whole game
 
-Phase 4 builds every system from the plan, milestone by milestone. See **[docs/GAME_SYSTEMS.md](docs/GAME_SYSTEMS.md)** for what each milestone added.
+Phase 4 builds every system from the plan, milestone by milestone. See **[docs/GAME_SYSTEMS.md](docs/GAME_SYSTEMS.md)** for what each milestone added, and **[docs/STORY_PROLOGUE.md](docs/STORY_PROLOGUE.md)** for the reincarnation prologue (New Game: an ordinary life ends → the void → the Goddess Aurelia → Unique Skill, class, elemental affinity incl. the Forbidden path → Status window → wake in the Capital), Skill Fusion, the F→SSS adventurer rank and the stakes of falling.
 
 ## Features
 
@@ -193,7 +193,12 @@ The e2e scripts use `playwright-core`. Point `CHROME_PATH` at any Chrome or Chro
 | Cycle target | `Tab` |
 | Talk / interact | `E` |
 | Chat | `Enter` |
-| Quest log · Minimap size | `J` · `M` |
+| Skills 1–4 · advanced · ultimate | `1`–`4` · `5` · `R` |
+| Dodge roll · Parry | `Q` · `V` |
+| Hero panel · Status window & Skill Fusion · Rankings | `P` · `U` · `L` |
+| Fusion skills | `G` · `H` · `N` |
+| Inventory · Armory · World map | `I` · `K` · `M` |
+| Quest log | `J` |
 | Menu / settings | `Esc` |
 
 Every key can be rebound in **Settings → Controls**. On touch devices you get a virtual stick and buttons.

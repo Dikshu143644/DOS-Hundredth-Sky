@@ -3,7 +3,7 @@ import { launch } from './browser.mjs';
 const [, , base, out, cls = 'archer', poi = 'camp', yaw = '3.14', hour = '17.4'] = process.argv;
 const W = +(process.env.W || 1600), H = +(process.env.H || 900);
 const { browser, page, errors } = await launch({ viewport: { width: W, height: H } });
-await page.goto(`${base}/?autotest=1&quality=${process.env.Q || 'high'}`, { waitUntil: 'load' });
+await page.goto(`${base}/?autotest=1&prologue=skip&quality=${process.env.Q || 'high'}`, { waitUntil: 'load' });
 await page.waitForSelector('#menu [data-act=newgame]', { timeout: 60000 });
 await page.click('#menu .tm-item[data-act=newgame]');
 await page.waitForSelector('#login button[type=submit]', { timeout: 30000 });

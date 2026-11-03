@@ -60,6 +60,9 @@ export class Hud {
   progress: ProgressView | null = null;
   level = 1;
   /** The 1–4, advanced (5) and ultimate (R) slots for this class, locked until learned. */
+  fusions: string[] = [];
+  setRank(r: string) { let b = this.root.querySelector('.adv-rank') as HTMLElement | null; if (!b) { b = el('div', 'adv-rank', ''); b.title = 'Adventurer rank (L for rankings)'; this.lvl.parentElement!.parentElement!.appendChild(b); } if (b.textContent !== r) { b.textContent = r; b.className = 'adv-rank r' + ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'].indexOf(r); } }
+  setFusions(f: string[]) { if (f.join() !== this.fusions.join()) { this.fusions = [...f]; this.buildSkills(); } }
   buildSkills() {
     const g = this.g, cls = this.char.cls, adv = this.progress?.adv ?? null, lvl = this.level;
     this.skillsEl.innerHTML = '';
@@ -79,6 +82,15 @@ export class Hud {
       this.skillsEl.appendChild(s);
       this.skillEls.set(sp.id, { root: s, cd: s.querySelector('.cd')!, sp, rank, known });
     }
+    // reincarnation: fused skills (G / H / N)
+    this.fusions.forEach((fid, k) => {
+      const sp = SKILLS.find((x) => x.id === fid); if (!sp) return;
+      const s = el('div', 'skill fusion', `<span class="key">${keyName('fusion' + (k + 1))}</span><div class="cd"></div><span class="nm">${sp.name}</span>`);
+      s.prepend(spellIcon(sp)); s.title = `${sp.name} — ${sp.title} (SKILL FUSION)\n${sp.desc}`;
+      s.onclick = () => g.cast(sp.id);
+      this.skillsEl.appendChild(s);
+      this.skillEls.set(sp.id, { root: s, cd: s.querySelector('.cd')!, sp, rank: 1, known: true });
+    });
     const dg = el('div', 'skill mini', `<span class="key">${keyName('dodge')}</span><span class="nm">DODGE</span>`); dg.onclick = () => g.action('dodge');
     const pr = el('div', 'skill mini', `<span class="key">${keyName('parry')}</span><span class="nm">PARRY</span>`); pr.onclick = () => g.action('parry');
     this.skillsEl.appendChild(dg); this.skillsEl.appendChild(pr);
@@ -281,10 +293,11 @@ export class Hud {
     this.chat(name, text, 'npc');
   }
 
-  showDeath(by: string, info: { xpLost?: number; goldLost?: number; at?: string; wait?: number } = {}) {
+  showDeath(by: string, info: { xpLost?: number; goldLost?: number; at?: string; wait?: number; injury?: string; lostItem?: string; rankLost?: number } = {}) {
     const wait = info.wait ?? 0;
     this.deathEl = el('div', 'death', `<h1>YOU HAVE FALLEN</h1><p>Slain by ${esc(by)}. The Tower does not forget — but it forgives.</p>
-      <div class="pen">${info.xpLost ? `<span>−${info.xpLost} XP</span>` : ''}${info.goldLost ? `<span>−${info.goldLost} gold</span>` : ''}<span>Soul-Weary for 60 s</span></div>
+      <div class="pen">${info.xpLost ? `<span>−${info.xpLost} XP</span>` : ''}${info.goldLost ? `<span>−${info.goldLost} gold</span>` : ''}<span>Soul-Weary for 60 s</span>${info.rankLost ? `<span>−${info.rankLost} rank pts</span>` : ''}</div>
+      ${info.injury || info.lostItem ? `<div class="pen lasting">${info.injury ? `<span>Injury: ${esc(info.injury)}</span>` : ''}${info.lostItem ? `<span>Lost in the fall: ${esc(info.lostItem.replace(/_/g, ' '))}</span>` : ''}</div>` : ''}
       <button class="btn" style="margin-top:24px" ${wait ? 'disabled' : ''}>Rise at ${esc(info.at ?? 'the shrine')}${wait ? ` (${wait})` : ''}</button>`);
     const b = this.deathEl.querySelector('button')! as HTMLButtonElement;
     b.onclick = () => this.g.net.send({ type: 'respawn' });

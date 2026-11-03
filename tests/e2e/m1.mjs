@@ -16,7 +16,7 @@ const fail = (m) => { console.error('M1 FAIL:', m); server.kill('SIGKILL'); proc
 const q = process.env.Q || 'high';
 const { browser, page, errors } = await launch({ viewport: { width: 1600, height: 900 } });
 try {
-  await page.goto(`${base}/?autotest=1&quality=${q}`, { waitUntil: 'load' });
+  await page.goto(`${base}/?autotest=1&prologue=skip&quality=${q}`, { waitUntil: 'load' });
   await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 60000 });
   await page.click('#menu .tm-item[data-act=newgame]');
   await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });

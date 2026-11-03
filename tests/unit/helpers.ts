@@ -1,13 +1,13 @@
 import { Game } from '../../src/server/core/game';
 import type { S2C } from '../../src/shared/protocol';
 
-export function makeGame(o: { bots?: number } = {}) {
+export function makeGame(o: { bots?: number; llm?: any } = {}) {
   let t = 1000;
   const mem = { data: null as any };
   const game = new Game({
     store: { load: () => mem.data, save: (d: any) => { mem.data = d; } } as any,
     hasher: { hash: async (p: string) => 'h:' + p, verify: async (p: string, h: string) => h === 'h:' + p, token: () => Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) },
-    llm: null, now: () => t, mode: 'offline', bots: o.bots ?? 0, dev: true, serverName: 'test',
+    llm: o.llm ?? null, now: () => t, mode: 'offline', bots: o.bots ?? 0, dev: true, serverName: 'test',
   });
   return { game, adv: (s: number) => { t += s; }, now: () => t, mem };
 }
@@ -20,7 +20,7 @@ export function client(game: Game) {
   return { id, inbox, wait, send: (m: any) => game.handle(id, m) };
 }
 /** Register, create a character of `cls` and join; returns the client and the server's Player. */
-export async function joinAs(game: Game, cls: string, name = 'Hero' + Math.floor(Math.random() * 1e5)) {
+export async function joinAs(game: Game, cls: string, name = 'Hero' + Math.floor(Math.random() * 1e5), o: { prologue?: boolean } = {}) {
   const c = client(game);
   await c.send({ type: 'register', user: name.toLowerCase(), pass: 'secret-pass' });
   await c.wait('auth');
@@ -29,6 +29,8 @@ export async function joinAs(game: Game, cls: string, name = 'Hero' + Math.floor
   await c.send({ type: 'join', charId: chars.list[0].id });
   await c.wait('joined');
   const p = [...game.players.values()].find((x) => x.name === name)!;
+  // most tests are about the world, not the void between worlds: stand the hero in it right away
+  if (!o.prologue) (p as any).hidden = false;
   return { c, p };
 }
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

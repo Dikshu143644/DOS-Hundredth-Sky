@@ -38,6 +38,10 @@ export type C2S =
   | { type: 'input'; seq: number; mx: number; mz: number; yaw: number; jump: boolean; sprint: boolean; walk: boolean; dt: number; dodge?: boolean }
   | { type: 'parry' }
   | { type: 'resync' }
+  | { type: 'prologue'; step: string; value?: string; text?: string }
+  | { type: 'fuse'; a: string; b: string }
+  | { type: 'status' }
+  | { type: 'leaderboard' }
   | { type: 'travel'; shrine: string }
   | { type: 'map' }
   | { type: 'allocStat'; attr: string; n?: number }
@@ -68,7 +72,7 @@ export type S2C =
   | { type: 'auth'; ok: boolean; error?: string; token?: string; user?: string }
   | { type: 'chars'; list: CharacterSummary[] }
   | { type: 'charError'; error: string }
-  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string>; zone?: string }
+  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string>; zone?: string; prologue?: boolean }
   | { type: 'snap'; t: number; ack: number; me: { x: number; y: number; z: number; vx: number; vy: number; vz: number; g: boolean; sw: boolean; yaw: number; dg?: number; dc?: number; ddx?: number; ddz?: number }; ents: NetEntity[]; gone: number[]; self: SelfState; worldTime: number; weather: string }
   | { type: 'pong'; t: number; st: number }
   | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' }
@@ -77,8 +81,11 @@ export type S2C =
   | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted' }
   | { type: 'quest'; quest: QuestView; event: 'discovered' | 'progress' | 'complete' | 'step' }
   | { type: 'notice'; text: string; style?: 'info' | 'rank' | 'levelup' | 'warn' }
-  | { type: 'died'; by: string; xpLost?: number; goldLost?: number; at?: string; wait?: number }
+  | { type: 'died'; by: string; xpLost?: number; goldLost?: number; at?: string; wait?: number; injury?: string; lostItem?: string; rankLost?: number }
   | { type: 'progress'; p: ProgressView }
+  | { type: 'prologue'; step: string; say: string; source: 'llm' | 'scripted'; state: { pastLife: string; cheat: string | null; cls: string; affinity: string | null; offer: string[] }; offer?: string[] }
+  | { type: 'status'; s: StatusView }
+  | { type: 'leaderboard'; rows: { name: string; cls: string; level: number; rank: string; power: number; me: boolean }[]; place: number; total: number }
   | { type: 'zone'; zone: string; x: number; y: number; z: number; yaw: number; weather: string; label: string; region: string; levels: [number, number] }
   | { type: 'map'; zone: string; attuned: string[]; bind: string; visited: string[] }
   | { type: 'kick'; reason: string }
@@ -89,3 +96,10 @@ export interface QuestView { id: string; rank: string; title: string; hook: stri
 
 export const sanitizeName = (s: string) => s.replace(/[^A-Za-z0-9 _\-'\u00C0-\u024F]/g, '').trim().slice(0, 16);
 export const sanitizeChat = (s: string) => s.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 160);
+
+export interface StatusView {
+  name: string; cls: string; adv: string | null; level: number; rank: string; advPts: number; nextPts: number | null;
+  cheat: string | null; affinity: string | null; pastLife: string; titles: string[]; title: string | null;
+  stats: { maxHp: number; maxMp: number; atk: number; mag: number; def: number; crit: number; spd: number; mpRegen: number }; hp: number; mp: number;
+  power: number; injuries: { id: string; until: number }[]; fusions: string[]; fusionSlots: number; deaths: number; kills: number;
+}
