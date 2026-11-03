@@ -65,7 +65,7 @@ describe('LLM gate and Story Director', () => {
     let t = 0;
     const gate = new LlmGate(async () => 'ok', () => t, 40, 8);
     const r: (string | null)[] = [];
-    for (let i = 0; i < 6; i++) r.push(await gate.ask('u', [{ role: 'user', content: 'hi' }]));
+    for (let i = 0; i < 6; i++) r.push(await gate.ask('u', [{ role: 'user', content: 'hi ' + i }]));
     expect(r.filter(Boolean).length).toBe(3);
     expect(gate.limited).toBe(3);
     expect(await new LlmGate(null, () => 0).ask('u', [])).toBeNull();

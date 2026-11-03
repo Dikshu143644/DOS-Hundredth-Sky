@@ -27,6 +27,10 @@
 
 ---
 
+## Live AI (server-side)
+
+Important NPCs and the Story Director talk through any OpenAI-compatible endpoint; the live shard uses Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`) with a model fallback list (`gemini-flash-latest` → `gemini-flash-lite-latest` → `gemini-3.5-flash-lite` → `gemini-3.8-flash`), retry/backoff, a resting window for overloaded models, a 10-minute reply cache and per-player + global token buckets. The key is configured only on the server: `DOS_LLM_BASE_URL` / `DOS_LLM_KEY` / `DOS_LLM_MODELS` env vars, or a `llm.secret.json` next to `server.mjs` (outside the served `client/` folder, git-ignored). With no key every NPC falls back to scripted lines and the HUD says so. `/health` shows which model answered last (never the key). Test: `node tests/e2e/ai-npc.mjs [--url …]`.
+
 ## Phase 4: the whole game
 
 Phase 4 builds every system from the plan, milestone by milestone. See **[docs/GAME_SYSTEMS.md](docs/GAME_SYSTEMS.md)** for what each milestone added.

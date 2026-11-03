@@ -215,6 +215,7 @@ export class Game {
       }
       case 'attack': this.combat.basicAttack(p, +m.yaw || 0, m.target, now); return;
       case 'parry': this.combat.parry(p, now); return;
+      case 'resync': p.known.clear(); return;
       case 'allocStat': this.progress.allocStat(p, String(m.attr), Number(m.n ?? 1)); return;
       case 'resetStats': this.progress.resetStats(p); return;
       case 'rankSkill': this.progress.rankSkill(p, String(m.skill)); return;
@@ -734,7 +735,7 @@ Reply with ONLY JSON: {"say": "your spoken reply, max 60 words", "mood": "one wo
 LONG-TERM MEMORY of this player: name ${p.name}, a level ${p.char.level} ${classById(p.char.cls).name}; met ${mem.met} times; kills ${p.char.kills}; deaths ${p.char.deaths}. ${mem.long.join('; ')}
 Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
       const history = mem.short.slice(-8).map((s) => ({ role: (s.who === 'player' ? 'user' : 'assistant') as 'user' | 'assistant', content: s.text }));
-      const reply = parseJsonLoose<{ say?: string; mood?: string; remember?: string }>(await this.llm.ask(p.user, [{ role: 'system', content: sys }, { role: 'user', content: ctx }, ...history], { maxTokens: 500, temperature: 0.85, json: true }));
+      const reply = parseJsonLoose<{ say?: string; mood?: string; remember?: string }>(await this.llm.ask(p.user, [{ role: 'system', content: sys }, { role: 'user', content: ctx }, ...history], { maxTokens: 220, temperature: 0.85, json: true }));
       if (reply?.say) {
         say = String(reply.say).slice(0, 420); mood = String(reply.mood ?? 'neutral').slice(0, 20); source = 'llm';
         if (reply.remember && String(reply.remember).length > 3) { mem.long.push(String(reply.remember).slice(0, 120)); if (mem.long.length > 12) mem.long.shift(); }
@@ -946,7 +947,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
     for (const [k, v] of Object.entries(this.data.sessions)) if (v.exp < t) delete this.data.sessions[k];
     try { this.o.store.save(this.data); } catch (e) { this.o.log?.('save failed', e); }
   }
-  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited }, worldTime: this.worldTime, weather: this.weather }; }
+  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited, cached: this.llm.cached }, worldTime: this.worldTime, weather: this.weather }; }
 }
 
 // ------------------------------------------------------------------ helpers
