@@ -1,10 +1,10 @@
 import type { ClassId } from './combat';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const SERVER_TICK = 20;           // snapshots per second
 export const INTERP_DELAY_MS = 110;      // remote entity interpolation delay
 
-export interface Appearance { tint: number; accent: number; headgear: boolean; cape: boolean; scale: number }
+export interface Appearance { tint: number; accent: number; headgear: boolean; cape: boolean; scale: number; body?: 'm' | 'f' }
 export interface CharacterSummary { id: string; name: string; cls: ClassId; level: number; appearance: Appearance; zone: string; created: number }
 
 /** Entity in a snapshot (compact field names keep packets small). */
@@ -17,6 +17,7 @@ export interface NetEntity {
   n?: string;                   // name (sent on first sight)
   k?: string;                   // model / class / kind
   ap?: Appearance;
+  w?: string;            // equipped weapon item id (players/bots) — drawn in their hand
   lv?: number;
   tg?: number;                  // current target id
   c?: string;                   // casting spell id
@@ -38,7 +39,9 @@ export type C2S =
   | { type: 'ping'; t: number; rtt?: number }
   | { type: 'talk'; npc: number; text: string }
   | { type: 'interact'; target: number }
-  | { type: 'respawn' };
+  | { type: 'respawn' }
+  | { type: 'equip'; item: string }
+  | { type: 'unequip'; slot: string };
 
 export interface SelfState { hp: number; mhp: number; mp: number; mmp: number; xp: number; xpNext: number; level: number; cds: Record<string, number>; gold: number }
 
@@ -47,7 +50,7 @@ export type S2C =
   | { type: 'auth'; ok: boolean; error?: string; token?: string; user?: string }
   | { type: 'chars'; list: CharacterSummary[] }
   | { type: 'charError'; error: string }
-  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[] }
+  | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string> }
   | { type: 'snap'; t: number; ack: number; me: { x: number; y: number; z: number; vx: number; vy: number; vz: number; g: boolean; sw: boolean; yaw: number }; ents: NetEntity[]; gone: number[]; self: SelfState; worldTime: number; weather: string }
   | { type: 'pong'; t: number; st: number }
   | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' }
@@ -57,7 +60,8 @@ export type S2C =
   | { type: 'quest'; quest: QuestView; event: 'discovered' | 'progress' | 'complete' | 'step' }
   | { type: 'notice'; text: string; style?: 'info' | 'rank' | 'levelup' | 'warn' }
   | { type: 'died'; by: string }
-  | { type: 'kick'; reason: string };
+  | { type: 'kick'; reason: string }
+  | { type: 'equipment'; equipment: Record<string, string>; inventory: { item: string; rarity: string; n: number }[]; ok: boolean; error?: string };
 
 export interface QuestStepView { text: string; done: boolean; progress?: string }
 export interface QuestView { id: string; rank: string; title: string; hook: string; steps: QuestStepView[]; current: number; hidden: boolean; complete: boolean; reward: string; source: 'llm' | 'procedural' }

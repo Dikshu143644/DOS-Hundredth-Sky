@@ -26,7 +26,7 @@ const { browser, page, errors } = await launch({ viewport: { width: 1280, height
 try {
   await page.goto(`${base}/?autotest=1&quality=low`, { waitUntil: 'load' });
   await page.keyboard.press('Enter');
-  await page.waitForSelector('#login .panel', { timeout: 120000 });
+  await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });
   step('login screen shown');
   const user = 'smoke' + Date.now().toString(36);
   await page.click('#login .tabs button[data-m=register]');
@@ -67,6 +67,18 @@ try {
   step(`casting IGNIS — chant on screen: "${(casting.chant || '').slice(0, 60)}…"`);
   await page.waitForFunction((m) => window.__dos.game.self.mp < m, mp0, { timeout: 15000 }).catch(() => fail('mana was never spent (server did not accept the cast)'));
   step('server accepted the cast (mana spent)');
+  // inventory + equipment: realistic hero holds the class legendary; equip the starter through the UI
+  await page.waitForTimeout(2500);
+  const kit = await page.evaluate(() => ({ eq: window.__dos.game.equipment?.weapon, hand: window.__dos.game.myView.weaponId, hero: !!window.__dos.game.myView.hero, inv: window.__dos.game.hud.inventory.map((e) => e.item) }));
+  if (kit.eq !== 'aether_staff' || kit.hand !== 'aether_staff' || !kit.hero) fail('starting kit wrong: ' + JSON.stringify(kit));
+  step(`realistic hero in world holding ${kit.hand}; bag: ${kit.inv.join(', ')}`);
+  await page.keyboard.press('KeyI');
+  await page.waitForSelector('#inventory .inv-box', { timeout: 5000 }).catch(() => fail('inventory screen did not open'));
+  await page.click('#inventory [data-item=oak_staff]');
+  await page.click('#inventory [data-equip=oak_staff]');
+  await page.waitForFunction(() => window.__dos.game.equipment?.weapon === 'oak_staff' && window.__dos.game.myView.weaponId === 'oak_staff', null, { timeout: 8000 }).catch(() => fail('server did not confirm the equip'));
+  step('inventory screen: equipped the Novice Oak Staff → server confirmed, hand model swapped');
+  await page.keyboard.press('Escape');
   const real = errors.filter((e) => !/favicon|speechSynthesis|AudioContext/i.test(e));
   if (real.length) fail('console errors: ' + real.join(' | '));
   step('no console errors');

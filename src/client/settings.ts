@@ -12,11 +12,11 @@ export const PRESETS: Record<Quality, QualityPreset> = {
 
 export const DEFAULT_BINDINGS: Record<string, string> = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft', walk: 'KeyC',
-  spell1: 'Digit1', spell2: 'Digit2', spell3: 'Digit3', attack: 'KeyF', interact: 'KeyE', target: 'Tab', chat: 'Enter', map: 'KeyM', quests: 'KeyJ', menu: 'Escape',
+  spell1: 'Digit1', spell2: 'Digit2', spell3: 'Digit3', attack: 'KeyF', interact: 'KeyE', target: 'Tab', chat: 'Enter', map: 'KeyM', quests: 'KeyJ', inventory: 'KeyI', armory: 'KeyK', menu: 'Escape',
 };
 export const BINDING_LABELS: Record<string, string> = {
   forward: 'Move forward', back: 'Move back', left: 'Strafe left', right: 'Strafe right', jump: 'Jump', sprint: 'Sprint', walk: 'Walk toggle',
-  spell1: 'IGNIS · Apocalyptic Flame', spell2: 'FULGUR · Ninth Storm', spell3: 'LUX · First Dawn', attack: 'Basic attack', interact: 'Talk / interact', target: 'Cycle target', chat: 'Chat', map: 'Toggle minimap size', quests: 'Quest log', menu: 'Menu',
+  spell1: 'IGNIS · Apocalyptic Flame', spell2: 'FULGUR · Ninth Storm', spell3: 'LUX · First Dawn', attack: 'Basic attack', interact: 'Talk / interact', target: 'Cycle target', chat: 'Chat', map: 'Toggle minimap size', quests: 'Quest log', inventory: 'Inventory & equipment', armory: 'Legendary armory', menu: 'Menu',
 };
 
 export interface Settings {

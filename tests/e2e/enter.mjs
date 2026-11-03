@@ -7,7 +7,7 @@ page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') 
 await page.goto(`http://localhost:8787/?autotest=1&${q}`, { waitUntil: 'load' });
 await page.waitForTimeout(300);
 await page.keyboard.press('Enter');
-await page.waitForSelector('#login .panel', { timeout: 120000 });
+await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });
 await page.click('#login .tabs button[data-m=register]');
 await page.fill('#login [name=username]', 'u' + Math.floor(Math.random() * 1e8));
 await page.fill('#login [name=password]', 'hundredth-sky');

@@ -1,3 +1,5 @@
+import { inventoryScreen } from '../ui/inventory';
+import type { ClassId } from '../../shared/combat';
 import * as THREE from 'three';
 import type { Engine } from '../engine/engine';
 import type { Transport } from '../net/transport';
@@ -55,6 +57,9 @@ export class GameClient {
     this.vfx = new VFX(engine);
     this.hud = new Hud(this, joined.char);
     this.myView = new CharacterView('p', joined.char.cls, joined.char.appearance);
+    this.cls = joined.char.cls;
+    this.equipment = joined.equipment ?? {};
+    this.myView.setWeapon(this.equipment.weapon ?? null, { light: settings.quality !== 'low', quality: settings.quality as any });
     this.myView.onStep = () => audio.footstep(engine.rainAmt > 0.2);
     engine.scene.add(this.myView.root);
     engine.hours = joined.worldTime;
@@ -83,7 +88,13 @@ export class GameClient {
       case 'snap': this.onSnap(m); break;
       case 'chat': this.hud.chat(m.from, m.text, m.channel); break;
       case 'fx': this.onFx(m); break;
-      case 'loot': this.hud.loot(m.items, m.gold); if (m.items.length) audio.loot(); break;
+      case 'loot': this.hud.loot(m.items, m.gold); if (m.items.length) audio.loot(); this.inv?.update(this.hud.inventory, this.equipment); break;
+      case 'equipment':
+        this.equipment = m.equipment; this.hud.setInventory(m.inventory);
+        this.myView.setWeapon(m.equipment.weapon ?? null, { light: settings.quality !== 'low', quality: settings.quality as any });
+        this.inv?.update(m.inventory, m.equipment);
+        if (!m.ok && m.error) this.hud.notice(m.error, 'warn');
+        break;
       case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source); break;
       case 'quest': this.hud.setQuest(m.quest, m.event === 'discovered'); if (m.event === 'discovered') audio.questReveal(); break;
       case 'notice': this.hud.notice(m.text, m.style); if (m.style === 'levelup') audio.levelUp(); break;
@@ -126,6 +137,7 @@ export class GameClient {
         view.root.position.set(e.x, e.y, e.z);
         if (e.t === 'p' || e.t === 'b') view.onStep = () => { if (view.root.position.distanceTo(this.renderPos) < 18) audio.footstep(this.engine.rainAmt > 0.2); };
       }
+      if ((e.t === 'p' || e.t === 'b') && (e.w ?? null) !== r.view.weaponId) r.view.setWeapon(e.w ?? null, { quality: settings.quality as any });
       r.ent = e;
       r.buf.push({ t: m.t, x: e.x, y: e.y, z: e.z, r: e.r });
     }
@@ -206,6 +218,21 @@ export class GameClient {
     return best;
   }
 
+  cls: ClassId = 'knight';
+  equipment: Record<string, string> = {};
+  inv: ReturnType<typeof inventoryScreen> | null = null;
+  openInventory() {
+    if (this.inv) { this.inv.close(); return; }
+    document.exitPointerLock?.();
+    this.inv = inventoryScreen({
+      inv: this.hud.inventory, equipment: this.equipment, cls: this.cls,
+      onEquip: (id) => this.net.send({ type: 'equip', item: id }),
+      onUnequip: (slot) => this.net.send({ type: 'unequip', slot }),
+      onArmory: (id) => (window as any).__dos?.openArmory?.(id),
+      onClose: () => { this.inv = null; },
+    });
+  }
+
   /** Discrete actions (keys / buttons). */
   action(a: string) {
     if (this.hud.modalOpen() && a !== 'menu') return;
@@ -214,6 +241,8 @@ export class GameClient {
     if (a === 'chat') return this.hud.focusChat();
     if (a === 'map') return this.hud.toggleMap();
     if (a === 'quests') return this.hud.toggleQuests();
+    if (a === 'inventory') return this.openInventory();
+    if (a === 'armory') return (window as any).__dos?.openArmory?.(this.equipment.weapon);
     if (this.dead) return;
     if (a === 'target') return this.cycleTarget();
     if (a === 'interact') return this.interact();
@@ -323,7 +352,7 @@ export class GameClient {
     v.position.copy(this.renderPos);
     v.rotation.y = lerpAngle(v.rotation.y, this.me.yaw + Math.PI, Math.min(1, dt * 14));
     const sp = Math.hypot(this.me.vx, this.me.vz);
-    let anim = this.dead ? 'death' : !this.me.grounded && !this.me.swimming ? (this.me.vy > 1 ? 'jump' : 'fall') : this.me.swimming ? 'swim' : sp > 7 ? 'sprint' : sp > 3 ? 'run' : sp > 0.3 ? 'walk' : 'idle';
+    let anim = this.dead ? 'death' : !this.me.grounded && !this.me.swimming ? (this.me.vy > 1 ? 'jump' : 'fall') : this.me.swimming ? 'swim' : sp > 4.8 ? 'sprint' : sp > 2.2 ? 'run' : sp > 0.25 ? 'walk' : 'idle';
     if (this.me.grounded && !this.wasGrounded) { anim = 'land'; audio.footstep(false); }
     this.wasGrounded = this.me.grounded;
     if (this.casting) anim = 'cast';

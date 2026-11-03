@@ -1,3 +1,4 @@
+import { CLASS_GIFT } from '../shared/items';
 import { CAPTURE, setStepHook } from './capture';
 import * as THREE from 'three';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
@@ -9,6 +10,8 @@ import { connectWS, serverUrl, Transport } from './net/transport';
 import { startOffline } from './net/offline';
 import { GameClient } from './game/client';
 import { CharacterView } from './game/character';
+import { SkyCastle } from './scenes/skycastle';
+import type { Armory } from './scenes/armory';
 import { show, hide, LOGO_SVG, loginScreen, charSelectScreen, createScreen, loadingScreen, ui } from './ui/screens';
 import { TOWER, heightAt, SPAWN } from '../shared/world';
 import type { S2C, CharacterSummary, Appearance } from '../shared/protocol';
@@ -30,16 +33,29 @@ const dolly = new THREE.Group();
 dolly.add(engine.camera);
 let game: GameClient | null = null;
 let preview: CharacterView | null = null;
-let mode: 'boot' | 'cine' | 'menu' | 'game' = 'boot';
+type Mode = 'boot' | 'cine' | 'sky' | 'menu' | 'game' | 'armory';
+let mode = 'boot' as Mode;
+let sky: SkyCastle | null = null;
+let armory: Armory | null = null;
+let armoryReturn: Mode = 'menu';
 let cineT = 0;
 let net: Transport | null = null;
 let welcome: Extract<S2C, { type: 'welcome' }> | null = null;
 const handlers: ((m: S2C) => void)[] = [];
 const state = { user: '', chars: [] as CharacterSummary[] };
-window.__dos = { engine, get game() { return game; }, state, settings, get mode() { return mode; }, get net() { return net; }, get welcome() { return welcome; } };
+window.__dos = { engine, get game() { return game; }, state, settings, get mode() { return mode; }, get net() { return net; }, get welcome() { return welcome; }, get sky() { return sky; }, get armory() { return armory; }, openArmory: (id?: string) => openArmory(id) };
 
 // ------------------------------------------------------------------ build world in the background
+// the login sky-castle is built first (small, fast); the world streams in behind it
+const skyQ = (): 'low' | 'medium' | 'high' | 'ultra' => (settings.quality as any) ?? 'high';
+const skyPromise = (async () => {
+  if (params.get('bench') === '1' || params.get('cine') === '1') return null;
+  try { const s = new SkyCastle(engine.renderer, skyQ()); await s.build(); s.setSize(innerWidth, innerHeight); return s; }
+  catch (e) { console.warn('[dos] sky-castle failed, using the world backdrop', e); return null; }
+})();
+addEventListener('resize', () => { sky?.setSize(innerWidth, innerHeight); armory?.setSize(innerWidth, innerHeight); });
 const buildPromise = (async () => {
+  await skyPromise;
   await preloadAnimations();
   await engine.build((s) => { (document.querySelector('#gate .small') as HTMLElement | null)?.replaceChildren(document.createTextNode(s.toUpperCase() + '…')); });
   engine.scene.add(dolly);
@@ -87,6 +103,7 @@ async function setPreview(cls: ClassId, ap: Appearance) {
   v.root.position.set(STAGE.x, heightAt(STAGE.x, STAGE.z), STAGE.z);
   v.root.rotation.y = 0.35;
   engine.scene.add(v.root);
+  v.setWeapon(CLASS_GIFT[cls], { light: true, quality: settings.quality as any });
   v.play('cheer', 0);
   setTimeout(() => v === preview && v.play('idle', 0.4), 1800);
 }
@@ -116,6 +133,12 @@ const loop = () => {
   const now = performance.now();
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (mode === 'sky' && sky) {
+    sky.render(dt);
+    for (const [t, sub] of SUBS) if (sky.time >= t && sky.time < t + dt + 0.0001 && !document.getElementById('login')) setSub(sub);
+    return;
+  }
+  if (mode === 'armory' && armory) { armory.render(dt); return; }
   if (!engine.ready) return;
   if (bench) {
     bench.t += dt; bench.frames.push(now);
@@ -134,6 +157,13 @@ const loop = () => {
     for (const [t, s] of SUBS) if (cineT >= t && cineT < t + dt + 0.0001) setSub(s);
     if (cineT > 12.2 && !document.querySelector('#cine .title.show')) document.querySelector('#cine .title')?.classList.add('show');
     if (cineT >= CINE_LEN + 2.5) endCinematic();
+  } else if (mode === 'sky' && sky) {
+    sky.render(dt);
+    for (const [t, s] of SUBS) if (sky.time >= t && sky.time < t + dt + 0.0001 && document.getElementById('login') === null) setSub(s);
+    return;
+  } else if (mode === 'armory' && armory) {
+    armory.render(dt);
+    return;
   } else if (mode === 'menu') {
     menuT += dt;
     if (preview) { previewCamera(); preview.update(dt, preview.currentName || 'idle', 0); preview.root.rotation.y += dt * 0.15; }
@@ -167,7 +197,18 @@ async function logo() {
   hide('gate', false);
   show(`<div class="logo">${LOGO_SVG}<div class="tag">The Hundredth Sky</div><div class="studio">a DOS Studio world</div></div>`, 'logo');
   void connect();
-  await Promise.all([buildPromise, new Promise((r) => setTimeout(r, AUTOTEST ? 300 : 4200))]);
+  const sc = await Promise.all([skyPromise, new Promise((r) => setTimeout(r, AUTOTEST ? 300 : 4200))]).then(([s]) => s);
+  if (sc && !AUTOTEST && params.get('bench') !== '1') {
+    hide('logo');
+    sky = sc; mode = 'sky';
+    if (params.get('skipintro') === '1') sky.intro = 1;
+    // the cinematic flight now ends at the floating Hundredth Tower; the login fades in over it
+    setTimeout(() => void connected.then(showLogin), params.get('skipintro') === '1' ? 0 : 3800);
+    const skip = () => { if (sky) sky.intro = Math.max(sky.intro, 0.92); };
+    window.addEventListener('keydown', skip, { once: true });
+    return;
+  }
+  await buildPromise;
   hide('logo');
   if (params.get('bench') === '1') { engine.env.cinematicSun = sunTowardTower(); bench = { t: 0, frames: [], done: false }; return; }
   if (AUTOTEST || params.get('skipintro') === '1') return endCinematic();
@@ -231,7 +272,19 @@ function showLoginForm() {
     },
   });
 }
-function afterAuth(user: string) {
+async function leaveSky() {
+  if (!sky) return;
+  if (!engine.ready) {
+    const w = show('<div class="sk-wait">Preparing the world…</div>', 'skywait');
+    await buildPromise; w.remove();
+  }
+  document.querySelector('.subtitle')?.remove();
+  const s = sky; sky = null; mode = 'menu'; menuT = 0;
+  engine.env.cinematicSun = sunTowardTower();
+  s.dispose();
+}
+async function afterAuth(user: string) {
+  await leaveSky();
   state.user = user;
   once(['chars'], (m) => { state.chars = m.list; if (m.list.length) showChars(); else showCreate(); });
   net!.send({ type: 'chars' });
@@ -284,6 +337,25 @@ function enterWorld(c: CharacterSummary) {
       if (navigator.xr) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { if (ok) { const b = VRButton.createButton(engine.renderer); b.style.bottom = '90px'; document.body.appendChild(b); } }).catch(() => {});
     }
   }, 50);
+}
+
+async function openArmory(focus?: string) {
+  const { Armory } = await import('./scenes/armory');
+  const { armoryScreen } = await import('./ui/armory');
+  if (!armory) { armory = new Armory(engine.renderer, skyQ()); await armory.build(); }
+  armory.setSize(innerWidth, innerHeight);
+  armoryReturn = mode === 'armory' ? armoryReturn : mode;
+  if (mode === 'game') { game?.hud && ((game as any).paused = true); document.exitPointerLock?.(); }
+  mode = 'armory';
+  const hidden = [...document.querySelectorAll<HTMLElement>('#ui > *:not(#armory)')].filter((e) => e.style.visibility !== 'hidden');
+  hidden.forEach((e) => (e.style.visibility = 'hidden'));
+  const owned = new Set<string>(game?.hud.inventory.map((e) => e.item) ?? []);
+  const equipped = (game as any)?.equipment?.weapon as string | undefined;
+  armoryScreen(armory, {
+    focus, owned, equipped, cls: game?.cls,
+    onEquip: (id) => { net?.send({ type: 'equip', item: id }); },
+    onClose: () => { hidden.forEach((e) => (e.style.visibility = '')); mode = armoryReturn; if (game) (game as any).paused = false; },
+  });
 }
 
 gate();

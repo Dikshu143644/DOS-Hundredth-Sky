@@ -6,7 +6,7 @@ const shot = async (n) => { await page.screenshot({ path: `${out}/${n}.png` }); 
 await page.goto(`http://localhost:8787/?skipintro=1&${q}`, { waitUntil: 'load' });
 await page.waitForTimeout(300);
 await page.keyboard.press('Enter');
-await page.waitForSelector('#login .panel', { timeout: 120000 });
+await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });
 await page.waitForTimeout(6000);
 await shot('m1_login');
 await page.click('#login .tabs button[data-m=register]');

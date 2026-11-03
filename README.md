@@ -236,3 +236,13 @@ All third-party assets are free and licence-clean (mostly CC0). See **[CREDITS.m
 Music, ambience and sound effects are synthesised live in WebAudio, so there are no audio files.
 
 © 2026 Omkar Supe / DOS Studio. *The Hundredth Sky*, its world, characters and lore are the property of DOS Studio. See [LICENSE](LICENSE).
+
+## Phase 2 — realism upgrade
+
+- **Sky-castle login**: a real-time 3D floating castle (glowing ring bands, rotating gold halos, crystals, waterfalls, drifting islands), HDRI sky, haze, god rays, bloom and ACES tone mapping, two adventurers on the cliff, and a frosted-glass panel with email/password login.
+- **Realistic heroes**: CC0 rigged human bodies (masculine/feminine, per-class outfits) with idle, walk, jog, sprint, jump, attack, cast and death animations. Playback rate follows ground speed (gait measured from the clips), so feet don't slide.
+- **Legendary weapons**: Frostfang, Ignis, Umbra Twins, Aether Orb Staff, Sol Aurelia and Skyreach, built as PBR models with emissive runes and particle auras. The equipped weapon is drawn in the hero's hand and is visible to other players.
+- **Armory (K)**: a showcase on a dark reflective cobblestone floor, with seams glowing in the rarity colour, sparkles, a lineup view and drag-to-rotate.
+- **Inventory & equipment (I)**: 8 equipment slots and a bag. Equip and unequip are server-authoritative: ownership and class are checked and stat bonuses are applied. Legendaries can drop from Tower monsters.
+- **Spell VFX**: GPU-simulated particles. IGNIS is a fireball with an explosion, smoke and a shockwave; FULGUR is branching tube lightning; LUX is a column of dawn light. Particle budgets scale with the quality tier (Low for phones).
+- **Dev harness**: `dev.html?scene=skycastle|armory|hero` renders the new scenes on their own (`tests/e2e/still.mjs`).

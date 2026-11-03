@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { makeCharacter, CharacterRig, AnimName } from '../engine/assets';
+import { makeHero, heroModel, UAL_GAIT, HeroRig } from '../engine/heroes';
+import { buildWeapon, WeaponFX, WeaponModel } from '../engine/weapons';
+import { ITEMS } from '../../shared/items';
 import { classById, MONSTERS, MonsterKind } from '../../shared/combat';
 import { NPCS } from '../../server/core/npcdefs';
 import type { Appearance } from '../../shared/protocol';
@@ -37,11 +40,41 @@ export class CharacterView {
       hide = model === 'Knight' ? ['1H_Sword_Offhand', 'Badge_Shield', 'Rectangle_Shield', 'Spike_Shield', '2H_Sword'] : model === 'Mage' ? ['Spellbook', '1H_Wand'] : model === 'Barbarian' ? ['1H_Axe_Offhand', 'Barbarian_Round_Shield', '2H_Axe', 'Mug'] : ['1H_Crossbow', '2H_Crossbow', 'Throwable', 'Knife_Offhand'];
       if (key === 'borin') hide = ['1H_Axe_Offhand', 'Barbarian_Round_Shield', '2H_Axe'];
     }
-    this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
-      this.rig = rig;
-      this.root.add(rig.root);
-      this.play('idle', 0);
-    });
+    const heroNpc: Record<string, [string, number?]> = { aldric: ['Knight_Male'], lyra: ['Wizard_Female_Long', 0xd8c8ff], borin: ['Peasant_Male_SimpleParted'], sela: ['Noble_Female_Long'], guard1: ['Knight_Male', 0xb8c8ff], guard2: ['Knight_Male', 0xb8c8ff], mira: ['Peasant_Female_Long'] };
+    if (kind === 'p' || kind === 'b' || (kind === 'n' && heroNpc[key])) {
+      // realistic-proportioned hero body (phase 2)
+      const hm = kind === 'n' ? heroNpc[key][0] : heroModel(key, ap?.body ?? 'm');
+      const look = kind === 'n' ? { tint: heroNpc[key][1], scale: key === 'mira' ? 0.97 : 1 } : { tint: tint === 0xffffff ? undefined : tint, accent, headgear, scale };
+      this.ready = makeHero(hm, look).then((rig) => { this.rig = rig; this.hero = rig; this.root.add(rig.root); this.play('idle', 0); if (this.pendingWeapon !== undefined) this.setWeapon(this.pendingWeapon); });
+    } else {
+      this.ready = makeCharacter(model, { hide, skeleton, tint, accent, headgear, cape, scale }).then((rig) => {
+        this.rig = rig;
+        this.root.add(rig.root);
+        this.play('idle', 0);
+      });
+    }
+  }
+
+  hero: HeroRig | null = null;
+  weapon: WeaponFX | null = null;
+  weaponId: string | null = null;
+  private pendingWeapon: string | null | undefined = undefined;
+  /** Put an item's weapon model in the right hand (legendaries keep their particle aura). */
+  setWeapon(itemId: string | null, o: { light?: boolean; quality?: 'low' | 'medium' | 'high' | 'ultra' } = {}) {
+    if (!this.hero) { this.pendingWeapon = itemId; return; }
+    if (itemId === this.weaponId && this.weapon) return;
+    this.weapon?.group.removeFromParent();
+    this.weapon = null; this.weaponId = itemId;
+    const d = itemId ? ITEMS[itemId] : undefined;
+    if (!d?.model || !this.hero.hand) return;
+    const fx = buildWeapon(d.model as WeaponModel, { light: o.light ?? false, quality: o.quality, aura: o.quality !== 'low' });
+    // grip in the palm: weapon +Y runs along the closed fingers (bow/staff held at the centre)
+    fx.group.scale.setScalar(1);
+    if (d.family === 'bow') fx.group.rotation.y = Math.PI / 2; // string toward the body
+    else if (d.family === 'staff') fx.group.position.y = -0.55; // held a third of the way up the shaft
+    else if (d.family === 'dual') fx.group.scale.setScalar(0.8);
+    this.hero.hand.add(fx.group);
+    this.weapon = fx;
   }
 
   private action(name: AnimName): THREE.AnimationAction | null {
@@ -82,17 +115,18 @@ export class CharacterView {
     }
     // speed-matched locomotion: playback rate follows ground speed so feet don't slide
     if (this.current && (this.currentName === 'walk' || this.currentName === 'run' || this.currentName === 'sprint')) {
-      const base = this.currentName === 'walk' ? 2.0 : 5.4;
-      this.current.timeScale = THREE.MathUtils.clamp(speed / base, 0.6, 1.6);
+      const base = this.hero ? (UAL_GAIT[this.currentName as AnimName] ?? 2.5) : this.currentName === 'walk' ? 2.0 : 5.4;
+      this.current.timeScale = THREE.MathUtils.clamp(speed / base, 0.5, this.hero ? 2.2 : 1.6);
       this.stepPhase += dt * this.current.timeScale * (this.currentName === 'walk' ? 2.0 : 2.8);
       if (this.stepPhase >= 1) { this.stepPhase -= 1; this.onStep?.(); }
     } else if (this.current) this.current.timeScale = 1;
     this.rig.mixer.update(dt);
+    if (this.weapon) this.weapon.update(now, dt);
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 4);
       for (const m of this.rig.materials) { const e0 = (m.userData.e0 ??= m.emissive.clone()) as THREE.Color; m.emissive.setRGB(e0.r + this.flash, e0.g + this.flash * 0.25, e0.b + this.flash * 0.15); }
     }
   }
   hitFlash() { this.flash = 0.9; }
-  dispose() { this.root.removeFromParent(); this.rig?.mixer.stopAllAction(); }
+  dispose() { this.root.removeFromParent(); this.rig?.mixer.stopAllAction(); this.weapon?.group.removeFromParent(); }
 }

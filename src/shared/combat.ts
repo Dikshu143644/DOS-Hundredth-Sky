@@ -52,9 +52,9 @@ export const BASIC_ATTACK = { range: 2.8, cooldown: 0.85, arc: Math.PI * 0.6, po
 export type MonsterKind = 'minion' | 'warrior' | 'magus';
 export interface MonsterDef { kind: MonsterKind; name: string; model: string; hp: number; atk: number; def: number; xp: number; speed: number; aggro: number; attackRange: number; attackCd: number; ranged: boolean; level: number; weakTo: Element }
 export const MONSTERS: Record<MonsterKind, MonsterDef> = {
-  minion: { kind: 'minion', name: 'Hollow Skeleton', model: 'Skeleton_Minion', hp: 70, atk: 9, def: 3, xp: 28, speed: 3.6, aggro: 15, attackRange: 2.1, attackCd: 1.6, ranged: false, level: 2, weakTo: 'light' },
-  warrior: { kind: 'warrior', name: 'Grave Knight', model: 'Skeleton_Warrior', hp: 150, atk: 15, def: 7, xp: 70, speed: 3.2, aggro: 17, attackRange: 2.4, attackCd: 2.0, ranged: false, level: 4, weakTo: 'fire' },
-  magus: { kind: 'magus', name: 'Bone Magus', model: 'Skeleton_Mage', hp: 95, atk: 13, def: 4, xp: 60, speed: 3.0, aggro: 22, attackRange: 16, attackCd: 2.6, ranged: true, level: 4, weakTo: 'lightning' },
+  minion: { kind: 'minion', name: 'Hollow Skeleton', model: 'Skeleton_Minion', hp: 70, atk: 9, def: 3, xp: 28, speed: 2.6, aggro: 15, attackRange: 2.1, attackCd: 1.6, ranged: false, level: 2, weakTo: 'light' },
+  warrior: { kind: 'warrior', name: 'Grave Knight', model: 'Skeleton_Warrior', hp: 150, atk: 15, def: 7, xp: 70, speed: 2.3, aggro: 17, attackRange: 2.4, attackCd: 2.0, ranged: false, level: 4, weakTo: 'fire' },
+  magus: { kind: 'magus', name: 'Bone Magus', model: 'Skeleton_Mage', hp: 95, atk: 13, def: 4, xp: 60, speed: 2.2, aggro: 22, attackRange: 16, attackCd: 2.6, ranged: true, level: 4, weakTo: 'lightning' },
 };
 
 /** XP needed to go from `level` to `level+1`. */

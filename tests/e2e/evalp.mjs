@@ -1,0 +1,10 @@
+import { launch } from './browser.mjs';
+import fs from 'node:fs';
+const [, , q, file] = process.argv;
+const { browser, page, errors } = await launch({ viewport: { width: 640, height: 360 } });
+page.on('console', (m) => { if (m.type() !== 'debug') console.log('[page]', m.type(), m.text().slice(0, 300)); });
+await page.goto(`http://localhost:5173/dev.html?${q}`, { waitUntil: 'load' });
+await page.waitForFunction(() => window.__ready || window.__err, null, { timeout: 120000 });
+const code = fs.readFileSync(file, 'utf8');
+console.log(JSON.stringify(await page.evaluate(code), null, 1));
+await browser.close();
