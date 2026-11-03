@@ -42,6 +42,9 @@ export type C2S =
   | { type: 'fuse'; a: string; b: string }
   | { type: 'status' }
   | { type: 'leaderboard' }
+  | { type: 'towerBoard' }
+  | { type: 'towerEnter'; floor: number }
+  | { type: 'towerGate' }
   | { type: 'travel'; shrine: string }
   | { type: 'map' }
   | { type: 'allocStat'; attr: string; n?: number }
@@ -100,6 +103,9 @@ export type S2C =
   | { type: 'prologue'; step: string; say: string; source: 'llm' | 'scripted'; state: { pastLife: string; cheat: string | null; cls: string; affinity: string | null; offer: string[] }; offer?: string[] }
   | { type: 'status'; s: StatusView }
   | { type: 'leaderboard'; rows: { name: string; cls: string; level: number; rank: string; power: number; me: boolean }[]; place: number; total: number }
+  | { type: 'tower'; floor: number; name: string; seal: boolean; lit: number[]; braziers: number[]; order: number[] | null; bossDead: boolean; chest: boolean; now: number; best: number; objective: string; boss: boolean }
+  | { type: 'towerGate'; best: number; floors: number; themes: string[] }
+  | { type: 'towerBoard'; rows: { name: string; cls: string; level: number; floor: number; me: boolean }[]; place: number; total: number; best: number }
   | { type: 'zone'; zone: string; x: number; y: number; z: number; yaw: number; weather: string; label: string; region: string; levels: [number, number] }
   | { type: 'map'; zone: string; attuned: string[]; bind: string; visited: string[] }
   | { type: 'kick'; reason: string }

@@ -1,3 +1,4 @@
+import { TOWER_BOSS_ITEM } from './tower';
 /** Phase 4 · M4: the item economy. Generated gear (7 tiers × 4 drop rarities), region materials,
  *  boss mythicals, divine recipes and one Unique; loot tables; crafting, enchanting, salvage; town
  *  shops; and the validation rules for player trading. Pure + deterministic given the rolls, shared by
@@ -71,6 +72,22 @@ export const tierFor = (level: number) => Math.max(1, Math.min(7, 1 + Math.floor
 
 // ------------------------------------------------------------------ boss mythicals, divine, unique
 export const BOSS_MYTHIC: Record<string, string> = { gravelord: 'gravelords_cleaver', mushking: 'sporecrown', colossus: 'colossus_heart', sandmaw: 'tyrants_fang', hrimfang: 'wyrmscale_mantle', malakar: 'archfiend_sigil', skyfang: 'gatekeepers_wing' };
+// Phase 4 · M5: the ten Tower guardians' mythicals (first clear always drops it; 25 % afterwards)
+Object.assign(BOSS_MYTHIC, TOWER_BOSS_ITEM);
+const TB: [string, string, string, ItemDef['slot'], Partial<ItemDef>, string][] = [
+  ['thornmaw_fang', 'Thornmaw Fang', 'Trophy of the First Gate', 'necklace', { hp: 110, atk: 8 }, 'Floor 10. Where every climber learns what the Tower is.'],
+  ['velthar_crown', "Vel'thar's Bone Crown", 'Crown of the Ossuary', 'helmet', { def: 18, mag: 10, mp: 40 }, 'Floor 20. The king wore it for nine hundred years and never once took it off.'],
+  ['cindrax_core', 'Cindrax Core', 'Heart of the Forge Tyrant', 'ring', { atk: 16, mag: 8 }, 'Floor 30. Warm to the touch, always.'],
+  ['glaciel_veil', "Glaciel's Veil", 'Mantle of the Rime Queen', 'armor', { def: 30, hp: 120, mp: 30 }, 'Floor 40. Snow never settles on it.'],
+  ['voltaros_coil', 'Voltaros Coil', 'Storm in a Ring', 'ring', { atk: 18, mag: 18 }, 'Floor 50. Your hair stands up when you wear it.'],
+  ['twin_mirror', 'Mirror of the Twin', 'It shows who you were', 'accessory', { def: 20, atk: 14, mag: 14, hp: 80 }, 'Floor 60. Look too long and it looks back.'],
+  ['nyxaroth_eye', 'Eye of Nyxaroth', 'The Abyss Looks Back', 'necklace', { mag: 28, mp: 120 }, 'Floor 70. It blinks, sometimes.'],
+  ['chronarch_gear', "Chronarch's Gear", 'One Tooth of Time', 'accessory', { atk: 22, mag: 22, def: 16 }, 'Floor 80. It ticks once for every life it has outlasted.'],
+  ['seraphine_feather', "Seraphine's Feather", 'The Last Light of a Fallen Star', 'helmet', { def: 34, mag: 30, hp: 140 }, 'Floor 90. It falls upward if you let it go.'],
+  ['ascalon_heart', 'Heart of Ascalon', 'The Hundredth Sky', 'armor', { def: 48, atk: 30, mag: 30, hp: 260, mp: 120 }, 'Floor 100. The sky has a heart, and now it is yours.'],
+];
+TB.forEach(([id, name, title, slot, st, lore], k) => reg({ id, name, title, slot, rarity: k === 9 ? 'divine' : 'mythical', ...st, lore, value: 1200 + k * 400 }));
+
 reg({ id: 'gravelords_cleaver', name: "Grave Lord's Cleaver", title: 'It remembers every neck', slot: 'weapon', family: 'sword', rarity: 'mythical', atk: 20, hp: 20, model: 'iron_sword', element: 'darkness', classes: ['warrior', 'knight'], lore: 'Varkas carried it out of a war nobody won.', value: 900 });
 reg({ id: 'sporecrown', name: 'Sporecrown', title: 'Diadem of the Mushroom Queen', slot: 'helmet', rarity: 'mythical', def: 10, mp: 40, mag: 6, lore: 'It grows a little each night.', value: 900 });
 reg({ id: 'colossus_heart', name: 'Colossus Heart', title: 'Engine of the Iron Peaks', slot: 'necklace', rarity: 'mythical', hp: 90, def: 6, lore: 'Still beating, slowly.', value: 1000 });

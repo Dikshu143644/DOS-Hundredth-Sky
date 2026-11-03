@@ -25,7 +25,9 @@ import { openBoard, type BoardUi } from '../ui/questboard';
 import { shopWindow, forgeWindow, tradeWindow, tradeInvite, type ShopUi, type ForgeUi, type TradeUi } from '../ui/market';
 import '../../shared/economy';
 import type { ProgressView } from '../../shared/protocol';
-import { heightAt, WATER_LEVEL } from '../../shared/world';
+import { heightAt, WATER_LEVEL, SEALS_OPEN } from '../../shared/world';
+import { floorOf, floorId } from '../../shared/tower';
+import { towerGate } from '../ui/towergate';
 
 interface Remote { id: number; t: NetEntity['t']; view: CharacterView; buf: InterpBuffer; ent: NetEntity; name: string; key: string; lv: number; plate: HTMLElement; lastPos: THREE.Vector3; speed: number }
 
@@ -135,6 +137,9 @@ export class GameClient {
       case 'kick': this.hud.notice(m.reason, 'warn'); break;
       case 'status': this.status = m.s; this.hud.setFusions(m.s.fusions); this.hud.setRank(m.s.rank); this.statusUi?.update(m.s); break;
       case 'leaderboard': this.ranksUi?.update(m); break;
+      case 'towerBoard': this.ranksUi?.updateTower(m); break;
+      case 'tower': this.onTower(m); break;
+      case 'towerGate': this.openTowerGate(m); break;
     }
   }
 
@@ -382,6 +387,8 @@ export class GameClient {
     this.cam.yaw = yaw;
     this.engine.weather = weather;
     this.hud.invalidateMap();
+    if (!floorOf(zone)) { this.towerState = null; this.hud.setTower(null); }
+    else if (this.towerState?.floor === floorOf(zone)) this.engine.settlement?.floor?.setState(this.towerState, () => performance.now() / 1000 + this.towerClock);
     this.net.send({ type: 'resync' });
     (window as any).__zoneMs = Math.round(performance.now() - t0);
     console.info('[dos] zone', zone, 'streamed in', (window as any).__zoneMs, 'ms');
@@ -401,11 +408,26 @@ export class GameClient {
     this.statusUi = statusWindow({ s: this.status, send: (m) => this.net.send(m), onClose: () => { this.statusUi = null; } });
     this.net.send({ type: 'status' });
   }
+  towerState: any = null;
+  towerClock = 0;
+  gateUi: { close: () => void } | null = null;
+  onTower(m: any) {
+    this.towerState = m;
+    if (m.seal) SEALS_OPEN.add(floorId(m.floor)); else SEALS_OPEN.delete(floorId(m.floor));
+    this.towerClock = m.now - performance.now() / 1000;
+    this.engine.settlement?.floor?.setState(m, () => performance.now() / 1000 + this.towerClock);
+    this.hud.setTower(m);
+  }
+  openTowerGate(m: { best: number; floors: number; themes: string[] }) {
+    if (this.gateUi) return;
+    document.exitPointerLock?.();
+    this.gateUi = towerGate({ ...m, enter: (n) => this.net.send({ type: 'towerEnter', floor: n }), ranks: () => this.openRanks(), onClose: () => { this.gateUi = null; } });
+  }
   openRanks() {
     if (this.ranksUi) { this.ranksUi.close(); return; }
     document.exitPointerLock?.();
-    this.ranksUi = rankingsPanel({ onClose: () => { this.ranksUi = null; } });
-    this.net.send({ type: 'leaderboard' });
+    this.ranksUi = rankingsPanel({ onClose: () => { this.ranksUi = null; }, send: (m) => this.net.send(m), tab: floorOf(this.engine.zone) ? 'tower' : 'power' });
+    this.net.send({ type: floorOf(this.engine.zone) ? 'towerBoard' : 'leaderboard' });
   }
   openHero() {
     if (this.heroUi) { this.heroUi.close(); return; }

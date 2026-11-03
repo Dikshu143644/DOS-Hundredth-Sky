@@ -1,4 +1,5 @@
 import type { MonsterDef, Element } from './combat';
+import { TOWER_SPECS } from './tower';
 
 /** Phase 4 · M2 bestiary: every region's monsters and its field boss. Models are Quaternius CC0
  *  monsters (q:<file>) or the KayKit skeletons, re-tinted. Stats scale from the level. */
@@ -50,6 +51,8 @@ const SPECS = [
     ['construct', 'Guardian Construct', 'q:goleling', 44, { weakTo: 'lightning', height: 1.8, tint: 0xffe08a, ranged: true, attackRange: 13 }],
     ['skyfang', 'Skyfang, Gatekeeper of the Tower', 'q:dragon', 50, { boss: true, height: 6, tint: 0xffd0a0, weakTo: 'space', element: 'fire', specials: ['breath', 'volley', 'charge', 'summon', 'enrage'], adds: 'starspawn', faction: 'tower' }],
   ]),
+  // Phase 4 · M5: the Hundredth Tower's floors (30 monsters) and its ten floor guardians
+  ...S('tower', TOWER_SPECS as Spec[]),
 ];
 
 export interface BeastDef extends MonsterDef { height?: number }

@@ -1,4 +1,4 @@
-import { heightAt, normalAt, buildZone, Collider, WATER_LEVEL, ZONE } from './world';
+import { heightAt, normalAt, buildZone, Collider, WATER_LEVEL, ZONE, SEALS_OPEN } from './world';
 import { clamp } from './rng';
 
 /** Kinematic character physics shared by client prediction and the authoritative server.
@@ -91,7 +91,7 @@ export function queryColliders(x: number, z: number, r: number, out: Collider[] 
     for (let iz = Math.floor((z - r) / CELL); iz <= Math.floor((z + r) / CELL); iz++) {
       const l = g.get(key(ix, iz));
       if (!l) continue;
-      for (const c of l) if (!_seen.has(c)) { _seen.add(c); out.push(c); }
+      for (const c of l) if (!_seen.has(c)) { _seen.add(c); if (c.tag === 'seal' && SEALS_OPEN.has(ZONE)) continue; out.push(c); }
     }
   return out;
 }

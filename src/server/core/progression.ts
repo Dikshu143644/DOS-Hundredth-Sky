@@ -112,6 +112,10 @@ export class Progression {
     if ((k.bosses ?? 0) >= 1) this.award(p, 'bossbreaker');
     if ((k.reactions ?? 0) >= 10) this.award(p, 'elementalist');
     if ((k.towerBest ?? 0) >= 10) this.award(p, 'climber');
+    if ((k.towerBest ?? 0) >= 30) this.award(p, 'tower_30');
+    if ((k.towerBest ?? 0) >= 50) this.award(p, 'tower_50');
+    if ((k.towerBest ?? 0) >= 80) this.award(p, 'tower_80');
+    if ((k.towerBest ?? 0) >= 100) this.award(p, 'tower_100');
   }
   private err(p: Player, t: string) { p.conn?.send({ type: 'notice', text: t, style: 'warn' }); }
 }
