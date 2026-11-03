@@ -53,3 +53,10 @@ No audio files. The score, ambience (wind, birds, rain, thunder), UI sounds and 
 
 The logo, UI, world layout, Tower, city, lore text, incantations, NPC personalities, quest system, netcode, physics and all game code were written for this project.
 The setting, names and lore come from Omkar Supe's *DOS: The Hundredth Sky* Game Design Document.
+
+## Phase 2 — realism upgrade
+
+- **Realistic heroes**: Quaternius *Universal Base Characters* bodies with *Modular Fantasy* outfits (Knight, Ranger, Wizard, Noble, Peasant; masculine and feminine) and the *Universal Animation Library* clips (idle, walk, jog, sprint, jump, sword attacks, spell cast, death, swim…). © Quaternius, **CC0 1.0** — https://quaternius.com. Files taken from the MIT-licensed project `benjamincanac/avelune` (https://github.com/benjamincanac/avelune), re-compressed with meshopt (gltf-transform).
+- **Sky HDRI**: *Kloofendal 48d Partly Cloudy (Pure Sky)* by Greg Zaal, Poly Haven, **CC0 1.0** — https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky
+- **Sky-castle login, legendary weapons (Frostfang, Ignis, Umbra Twins, Aether Orb Staff, Sol Aurelia, Skyreach), armory floor, spell VFX**: built procedurally in code for this project (geometry, shaders and canvas textures; no third-party assets, no AI-generated images).
+- **Fonts**: Cinzel / Cormorant Garamond (SIL Open Font License 1.1), as in phase 1.

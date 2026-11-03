@@ -23,7 +23,7 @@ await page.keyboard.press('Enter');
 await until(() => window.__dos.mode === 'cine', true, 150); // logo
 await frames(300);                                        // cinematic flight
 await page.keyboard.press('Space');
-await until(() => !!document.querySelector('#login .panel'));
+await until(() => !!document.querySelector('#login button[type=submit]'));
 await frames(45);
 await page.click('#login .tabs button[data-m=register]');
 await page.type('#login [name=username]', 'omkar', { delay: 0 }); await frames(8);
