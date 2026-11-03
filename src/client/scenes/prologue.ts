@@ -137,9 +137,9 @@ export class Prologue {
           return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
         void main(){ vec3 p = vP*3.0 + vec3(0.0, uT*0.02, 0.0);
           float a = n(p)*0.5 + n(p*2.1)*0.25 + n(p*4.3)*0.125;
-          vec3 c = mix(vec3(0.015,0.01,0.04), vec3(0.22,0.08,0.38), smoothstep(0.35,0.85,a));
+          vec3 c = mix(vec3(0.012,0.035,0.04), vec3(0.09,0.30,0.31), smoothstep(0.35,0.85,a));
           c = mix(c, vec3(0.95,0.62,0.32), smoothstep(0.72,0.95,a)*0.35*(0.6+0.4*vP.y));
-          c += vec3(0.05,0.03,0.12)*(1.0-abs(vP.y));
+          c += vec3(0.03,0.07,0.065)*(1.0-abs(vP.y));
           gl_FragColor = vec4(c,1.0); }`,
     });
     V.add(new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), skyMat));
@@ -200,8 +200,8 @@ export class Prologue {
     const gl = new THREE.PointLight(0xffd29a, 0, 18, 1.5); gl.position.set(0, 2, 1); this.goddess.add(gl); (this as any).gLight = gl;
     this.goddess.position.set(0, 0.5, -6);
     V.add(this.goddess);
-    V.add(new THREE.AmbientLight(0x6a5a90, 0.6));
-    const key = new THREE.DirectionalLight(0xbfb0ff, 1.2); key.position.set(2, 5, 4); V.add(key);
+    V.add(new THREE.AmbientLight(0x6a8a86, 0.6));
+    const key = new THREE.DirectionalLight(0xfff0dc, 1.2); key.position.set(2, 5, 4); V.add(key);
   }
 
   /** The player's new body, floating like a pale soul to the left of the goddess (create screen + dialogue). */
@@ -210,7 +210,7 @@ export class Prologue {
     await v.ready;
     if (this.soul) { this.void.remove(this.soul.root); this.soul.dispose(); }
     this.soul = v; this.soulMat = [];
-    v.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial) { const mm = m.material as THREE.MeshStandardMaterial; mm.transparent = true; mm.opacity = 0.92; mm.emissive = new THREE.Color(0x5a6aa0); mm.emissiveIntensity = 0.35; this.soulMat.push(mm); } });
+    v.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial) { const mm = m.material as THREE.MeshStandardMaterial; mm.transparent = true; mm.opacity = 0.92; mm.emissive = new THREE.Color(0x7fb8b0); mm.emissiveIntensity = 0.35; this.soulMat.push(mm); } });
     v.root.position.set(-2.7, -0.2, -4.2); v.root.rotation.y = 0.75;
     this.void.add(v.root);
     v.play('idle', 0);
@@ -219,7 +219,7 @@ export class Prologue {
 
   enterVoid() {
     this.phase = 'void'; this.life.visible = false; this.void.visible = true;
-    this.scene.fog = null; this.scene.background = new THREE.Color(0x020106);
+    this.scene.fog = null; this.scene.background = new THREE.Color(0x020606);
     this.walker?.dispose(); this.walker = null;
     this.camera.position.set(0, 0.9, 3.6); this.camera.lookAt(-0.4, 1.0, -6);
   }

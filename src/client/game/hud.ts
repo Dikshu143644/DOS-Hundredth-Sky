@@ -20,9 +20,9 @@ export function spellIcon(sp: SpellDef | 'attack', size = 64): HTMLCanvasElement
   const g = c.getContext('2d')!;
   const col = sp === 'attack' ? '#e8e0c8' : '#' + sp.color.toString(16).padStart(6, '0');
   const bg = g.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 1.4);
-  bg.addColorStop(0, col); bg.addColorStop(0.45, 'rgba(20,20,30,.9)'); bg.addColorStop(1, '#05070c');
+  bg.addColorStop(0, col + '99'); bg.addColorStop(0.55, 'rgba(255,255,255,.10)'); bg.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = bg; g.fillRect(0, 0, size, size);
-  g.strokeStyle = col; g.lineWidth = 2.5; g.shadowColor = col; g.shadowBlur = 10; g.translate(size / 2, size / 2);
+  g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.shadowColor = col; g.shadowBlur = 9; g.translate(size / 2, size / 2);
   if (sp === 'attack') { g.beginPath(); g.moveTo(-14, 14); g.lineTo(14, -14); g.moveTo(8, -16); g.lineTo(16, -8); g.moveTo(-16, 8); g.lineTo(-8, 16); g.stroke(); }
   else if (sp.id === 'ignis') { g.beginPath(); for (let i = 0; i < 3; i++) { g.moveTo(-10 + i * 10, 16); g.quadraticCurveTo(-18 + i * 12, -2, -4 + i * 6, -18 + i * 4); } g.stroke(); g.beginPath(); g.arc(0, 6, 9, 0, Math.PI * 2); g.stroke(); }
   else if (sp.id === 'fulgur' || sp.fx === 'fulgur') { g.beginPath(); g.moveTo(6, -20); g.lineTo(-6, 0); g.lineTo(4, 0); g.lineTo(-6, 20); g.stroke(); }
@@ -341,11 +341,11 @@ export class Hud {
     for (let j = 0; j < 512; j++) for (let i = 0; i < 512; i++) {
       const x = i / S - 210, z = j / S - 210, h = heightAt(x, z);
       const k = (j * 512 + i) * 4;
-      let r = 40 + h * 2, gg = 60 + h * 2.2, b = 38 + h;
-      if (h < WATER_LEVEL) { r = 30; gg = 70; b = 90; }
-      if (h > 30) { r = gg = b = 70 + h * 0.8; }
+      let r = 120 + h * 1.6, gg = 158 + h * 1.4, b = 104 + h;
+      if (h < WATER_LEVEL) { r = 128; gg = 196; b = 210; }
+      if (h > 30) { r = gg = b = 170 + h * 0.6; }
       // region tint (sand gold, snow white, forbidden violet …)
-      if (REGION.id !== 'capital') { const tc = REGION.tints[0]; const L = 0.5 + h * 0.012; r = ((tc >> 16) & 255) * L; gg = ((tc >> 8) & 255) * L; b = (tc & 255) * L; }
+      if (REGION.id !== 'capital') { const tc = REGION.id === 'forbidden' ? 0x8a5a48 : REGION.tints[0]; const L = 0.82 + h * 0.006; r = ((tc >> 16) & 255) * L; gg = ((tc >> 8) & 255) * L; b = (tc & 255) * L; }
       img.data[k] = r; img.data[k + 1] = gg; img.data[k + 2] = b; img.data[k + 3] = 255;
     }
     g.putImageData(img, 0, 0);
@@ -354,7 +354,7 @@ export class Hud {
     for (const road of ROADS) { g.beginPath(); road.forEach((p, i) => { const [a, b] = P(p.x, p.z); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); g.stroke(); }
     g.fillStyle = '#8a8478';
     for (const c2 of buildZone().colliders) if (c2.kind === 'box' && (c2.tag === 'wall' || c2.tag === 'building' || c2.tag === 'tower')) { const [a, b] = P(c2.x - c2.hx, c2.z - c2.hz); g.fillRect(a, b, c2.hx * 2 * S, c2.hz * 2 * S); }
-    g.fillStyle = 'rgba(30,60,30,.5)';
+    g.fillStyle = 'rgba(60,110,60,.55)';
     for (const t of buildZone().trees) { const [a, b] = P(t.x, t.z); g.fillRect(a - 1, b - 1, 2.5, 2.5); }
     g.font = '600 12px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif'; g.textAlign = 'center';
     for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
@@ -371,7 +371,7 @@ export class Hud {
     const W = this.mm.width, me = this.g.renderPos;
     const S = 512 / 420, zoom = this.mmWrap.classList.contains('big') ? 1.1 : 1.6;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = '#0a0f18'; g.fillRect(0, 0, W, W);
+    g.fillStyle = '#a9c9b4'; g.fillRect(0, 0, W, W);
     g.translate(W / 2, W / 2);
     g.scale(zoom, zoom);
     g.drawImage(this.mmBase!, -(me.x + 210) * S, -(me.z + 210) * S);

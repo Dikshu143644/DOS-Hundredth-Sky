@@ -25,7 +25,7 @@ const PAL: Record<ZoneId, { lo: number; hi: number; peak?: number; tree: number;
   mountain: { lo: 0x7d8f5a, hi: 0x8a8478, peak: 0xf4f6f8, tree: 0x2e4a30, road: 0xa89878 },
   desert: { lo: 0xe0bf80, hi: 0xc4924e, tree: 0x6a7a3a, road: 0xa07a4a },
   frozen: { lo: 0xb8cfe2, hi: 0xffffff, tree: 0x4a6a70, road: 0x9aaab8 },
-  forbidden: { lo: 0x3e3046, hi: 0x6e5470, tree: 0x1e1422, road: 0x8a5a6a },
+  forbidden: { lo: 0x4c3c34, hi: 0x84523e, tree: 0x2a1c16, road: 0x8e6e5a },
   tower: { lo: 0xa9b97f, hi: 0xd6cfa2, tree: 0x4a6a3a, road: 0xd8c8a0 },
 };
 
@@ -38,9 +38,9 @@ function paintWorld(): HTMLCanvasElement {
   const x = c.getContext('2d')!;
   // sea of clouds / ocean around the known world
   const sea = x.createLinearGradient(0, 0, 0, MAP_H);
-  sea.addColorStop(0, '#22385c'); sea.addColorStop(1, '#22385c');
+  sea.addColorStop(0, '#78bccb'); sea.addColorStop(1, '#5fa6ba');
   x.fillStyle = sea; x.fillRect(0, 0, MAP_W, MAP_H);
-  x.strokeStyle = 'rgba(200,220,255,.08)'; x.lineWidth = 1;
+  x.strokeStyle = 'rgba(255,255,255,.14)'; x.lineWidth = 1;
   for (let yy = 8; yy < MAP_H; yy += 14) { x.beginPath(); for (let xx = 0; xx <= MAP_W; xx += 8) x.lineTo(xx, yy + Math.sin(xx * 0.08 + yy) * 2); x.stroke(); }
   // ---- one continent: organic coastline, regions blending into each other at their borders
   const S = 2, NW = Math.ceil(MAP_W / S), NH = Math.ceil(MAP_H / S);
@@ -108,7 +108,7 @@ function paintWorld(): HTMLCanvasElement {
     });
   });
   const img = x.createImageData(MAP_W, MAP_H), d = img.data;
-  const deep: RGB = [34, 56, 92], shallow: RGB = [58, 104, 140], sand: RGB = [226, 206, 160], water: RGB = [58, 120, 176];
+  const deep: RGB = [96, 166, 186], shallow: RGB = [146, 208, 214], sand: RGB = [226, 206, 160], water: RGB = [92, 168, 200];
   for (let j = 0; j < NH; j++) for (let i = 0; i < NW; i++) {
     const o = j * NW + i, sd = land[o];
     let col: RGB;
@@ -124,7 +124,7 @@ function paintWorld(): HTMLCanvasElement {
   }
   x.putImageData(img, 0, 0);
   // gentle sea swell lines
-  x.strokeStyle = 'rgba(200,220,255,.07)'; x.lineWidth = 1;
+  x.strokeStyle = 'rgba(255,255,255,.16)'; x.lineWidth = 1;
   for (let yy = 8; yy < MAP_H; yy += 16) { x.beginPath(); let pen = false; for (let xx = 0; xx <= MAP_W; xx += 8) { const y2 = yy + Math.sin(xx * 0.06 + yy) * 2; if (landSd(xx, y2) < 10) { pen = false; continue; } if (pen) x.lineTo(xx, y2); else x.moveTo(xx, y2); pen = true; } x.stroke(); }
   const isLand = (px: number, py: number) => landSd(px, py) < -4;
   const wAt = (k: number, px: number, py: number) => { const i = Math.min(NW - 1, Math.max(0, Math.floor(px / S))), j = Math.min(NH - 1, Math.max(0, Math.floor(py / S))); return land[j * NW + i] > 0 ? 0 : W[(j * NW + i) * centers.length + k]; };
@@ -169,7 +169,7 @@ function paintWorld(): HTMLCanvasElement {
       for (let k = 0; k < zd.trees.length; k++) { const t = zd.trees[k]; if (inSea(t.x, t.z)) continue; const ow = own(t.x, t.z); if (ow < 0.35 || ((k * 7919) % 100) / 100 > ow * 1.4) continue; const [a, b] = m(t.x, t.z); x.globalAlpha = 0.75 * Math.min(1, ow * 1.3); x.beginPath(); x.arc(a, b, t.type >= 7 ? 0.9 : 1.3 + t.s * 0.25, 0, Math.PI * 2); x.fill(); }
       x.globalAlpha = 1;
       // buildings
-      x.fillStyle = z === 'forbidden' ? '#5a4a58' : z === 'frozen' ? '#d8e8f8' : z === 'desert' ? '#e8d0a0' : '#d8ccb4';
+      x.fillStyle = z === 'forbidden' ? '#5e4c44' : z === 'frozen' ? '#d8e8f8' : z === 'desert' ? '#e8d0a0' : '#d8ccb4';
       x.strokeStyle = 'rgba(40,30,20,.7)'; x.lineWidth = 0.8;
       for (const bd of zd.buildings) {
         const [a, b] = m(bd.x, bd.z); const w = (bd.w / 400) * TILE, dd = (bd.d / 400) * TILE;
