@@ -7,7 +7,7 @@ export interface MapState { zone: string; attuned: string[]; bind: string; visit
 
 // ------------------------------------------------------------------ layout: how the regions border each other (from their gates)
 const GRID: Record<ZoneId, [number, number]> = { frozen: [0, 0], tower: [2, 0], mountain: [0, 1], capital: [1, 1], desert: [2, 1], forest: [1, 2], forbidden: [1, 3] };
-const COLS = 3, ROWS = 4, TILE = 220, PAD = 30, TOP = 120;
+const COLS = 3, ROWS = 4, TILE = 220, PAD = 64, TOP = 130;
 export const MAP_W = COLS * TILE + PAD * 2, MAP_H = ROWS * TILE + TOP + PAD;
 /** Region-local metres → map pixels. */
 export function toMap(zone: string, x: number, z: number): [number, number] {
@@ -30,6 +30,7 @@ const PAL: Record<ZoneId, { lo: number; hi: number; peak?: number; tree: number;
 };
 
 let baseCanvas: HTMLCanvasElement | null = null;
+export let paintMs = 0;
 /** Paint every region from its real heightmap, roads, trees, towns and the Capital, once. */
 function paintWorld(): HTMLCanvasElement {
   if (baseCanvas) return baseCanvas;
@@ -41,44 +42,116 @@ function paintWorld(): HTMLCanvasElement {
   x.fillStyle = sea; x.fillRect(0, 0, MAP_W, MAP_H);
   x.strokeStyle = 'rgba(200,220,255,.08)'; x.lineWidth = 1;
   for (let yy = 8; yy < MAP_H; yy += 14) { x.beginPath(); for (let xx = 0; xx <= MAP_W; xx += 8) x.lineTo(xx, yy + Math.sin(xx * 0.08 + yy) * 2); x.stroke(); }
-  const occ = (c2: number, r2: number) => ZONE_IDS.some((z) => GRID[z][0] === c2 && GRID[z][1] === r2);
-  const nz = (a: number, b: number) => { const s1 = Math.sin(a * 0.11 + b * 0.031) + Math.sin(a * 0.037 - b * 0.09) * 0.8 + Math.sin((a + b) * 0.21) * 0.35; return (s1 + 2.15) / 4.3; };
-  const S = 2; // sample every 2 px, then draw blocks (fast, still detailed)
-  for (const z of ZONE_IDS) {
-    const g = GRID[z], ox = PAD + g[0] * TILE, oy = TOP + g[1] * TILE, P = PAL[z], R = REGIONS[z];
+  // ---- one continent: organic coastline, regions blending into each other at their borders
+  const S = 2, NW = Math.ceil(MAP_W / S), NH = Math.ceil(MAP_H / S);
+  const vn = (a: number, b: number) => { // cheap smooth value noise, 0..1
+    const xi = Math.floor(a), yi = Math.floor(b), xf = a - xi, yf = b - yi;
+    const h = (p: number, q: number) => { const s = Math.sin(p * 127.1 + q * 311.7) * 43758.5453; return s - Math.floor(s); };
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    return (h(xi, yi) * (1 - u) + h(xi + 1, yi) * u) * (1 - v) + (h(xi, yi + 1) * (1 - u) + h(xi + 1, yi + 1) * u) * v;
+  };
+  const fbm = (a: number, b: number) => vn(a, b) * 0.55 + vn(a * 2.1, b * 2.1) * 0.28 + vn(a * 4.3, b * 4.3) * 0.17;
+  // continent shape: the three northern rows full width, the Forbidden Lands a peninsula to the south
+  const L0 = PAD, R0 = PAD + COLS * TILE, T0 = TOP, B0 = TOP + 3 * TILE;
+  const sdBox = (px: number, py: number, x0: number, y0: number, x1: number, y1: number, r: number) => {
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hx = (x1 - x0) / 2 - r, hy = (y1 - y0) / 2 - r;
+    const qx = Math.abs(px - cx) - hx, qy = Math.abs(py - cy) - hy;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+  };
+  const smin = (a: number, b: number, k: number) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
+  const landSd = (px: number, py: number) => {
+    const main = sdBox(px, py, L0 - 8, T0 - 8, R0 + 8, B0 + 4, 80);
+    const pen = sdBox(px, py, L0 + TILE * 0.78, B0 - 40, L0 + TILE * 2.22, B0 + TILE + 10, 70);
+    const n = (fbm(px / 110 + 3, py / 110) - 0.5) * 170 + (fbm(px / 36, py / 36) - 0.5) * 60 + (fbm(px / 11, py / 11) - 0.5) * 14;
+    return smin(main, pen, 110) + Math.min(n, 38); // bays bite at most a little into a region; headlands reach out
+  };
+  // biome weight of each region at a map pixel: soft, warped, so borders wander and blend
+  const centers = ZONE_IDS.map((z) => ({ z, x0: PAD + GRID[z][0] * TILE, y0: TOP + GRID[z][1] * TILE }));
+  const weights = (px: number, py: number, out: Float32Array) => {
+    const wx = px + (fbm(px / 90 + 11, py / 90 + 3) - 0.5) * 190 + (fbm(px / 26, py / 26) - 0.5) * 40, wy = py + (fbm(px / 90 + 37, py / 90 + 7) - 0.5) * 190 + (fbm(px / 26 + 5, py / 26 + 9) - 0.5) * 40;
+    let sum = 0;
+    for (let k = 0; k < centers.length; k++) {
+      const c0 = centers[k], dx = Math.max(c0.x0 - wx, 0, wx - (c0.x0 + TILE)), dy = Math.max(c0.y0 - wy, 0, wy - (c0.y0 + TILE));
+      const d = Math.hypot(dx, dy) / 34; const w = Math.exp(-d * d); out[k] = w; sum += w;
+    }
+    for (let k = 0; k < centers.length; k++) out[k] /= sum || 1;
+  };
+  const W = new Float32Array(NW * NH * centers.length), land = new Float32Array(NW * NH);
+  const tmpW = new Float32Array(centers.length);
+  for (let j = 0; j < NH; j++) for (let i = 0; i < NW; i++) {
+    const px = i * S + S / 2, py = j * S + S / 2, o = j * NW + i;
+    land[o] = landSd(px, py);
+    if (land[o] > 0) continue;
+    weights(px, py, tmpW); W.set(tmpW, o * centers.length);
+  }
+  // elevation + colour, region by region (each region's own terrain, blended by weight)
+  const E = new Float32Array(NW * NH), COL = new Float32Array(NW * NH * 3), WET = new Float32Array(NW * NH);
+  centers.forEach((c0, k) => {
+    const z = c0.z, P = PAL[z], R = REGIONS[z];
     withZone(z, () => {
-      const n = TILE / S, hs = new Float32Array((n + 1) * (n + 1));
+      // this region's height range from its own tile
       let mn = 1e9, mx = -1e9;
-      for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const h = heightAt(-200 + (i / n) * 400, -200 + (j / n) * 400); hs[j * (n + 1) + i] = h; if (h < mn) mn = h; if (h > mx) mx = h; }
-      const img = x.createImageData(TILE, TILE), d = img.data;
-      const lo = hexRgb(P.lo), hi = hexRgb(P.hi), pk = P.peak !== undefined ? hexRgb(P.peak) : null, water = hexRgb(0x3a78b0);
-      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-        const h = hs[j * (n + 1) + i], hx = hs[j * (n + 1) + i + 1] - h, hz = hs[(j + 1) * (n + 1) + i] - h;
-        const t = (h - mn) / Math.max(1, mx - mn);
+      for (let j = 0; j <= 20; j++) for (let i = 0; i <= 20; i++) { const h = heightAt(-200 + i * 20, -200 + j * 20); if (h < mn) mn = h; if (h > mx) mx = h; }
+      const lo = hexRgb(P.lo), hi = hexRgb(P.hi), pk = P.peak !== undefined ? hexRgb(P.peak) : null;
+      for (let j = 0; j < NH; j++) for (let i = 0; i < NW; i++) {
+        const o = j * NW + i; if (land[o] > 0) continue;
+        const w = W[o * centers.length + k]; if (w < 0.02) continue;
+        const lx = ((i * S + S / 2 - c0.x0) / TILE) * 400 - 200, lz = ((j * S + S / 2 - c0.y0) / TILE) * 400 - 200;
+        const rf = (v: number) => { let u = ((v + 200) % 800 + 800) % 800; if (u > 400) u = 800 - u; return u - 200; }; // mirror beyond the region's edge: continuous, no stripes
+        const h = heightAt(rf(lx), rf(lz));
+        const t = Math.max(0, Math.min(1, (h - mn) / Math.max(1, mx - mn)));
         let col = mix(lo, hi, Math.min(1, t * 1.2));
         if (pk && t > 0.72) col = mix(col, pk, Math.min(1, (t - 0.72) / 0.12));
-        // hillshade, light from the north-west
-        const sh = Math.max(0.55, Math.min(1.35, 1 + (-hx - hz) * 0.09));
-        col = [col[0] * sh, col[1] * sh, col[2] * sh];
-        if (h < R.water) col = mix(water, [20, 50, 90], Math.min(1, (R.water - h) / 6));
-        for (let b = 0; b < S; b++) for (let a = 0; a < S; a++) { const k = ((j * S + b) * TILE + i * S + a) * 4; d[k] = col[0]; d[k + 1] = col[1]; d[k + 2] = col[2]; d[k + 3] = 255; }
+        E[o] += w * t * (mx - mn); WET[o] += h < R.water ? w : 0;
+        COL[o * 3] += w * col[0]; COL[o * 3 + 1] += w * col[1]; COL[o * 3 + 2] += w * col[2];
       }
-      // ragged coastline + sand rim on the sides that face the sea
-      const [cc, rr] = g, open = { n: !occ(cc, rr - 1), s: !occ(cc, rr + 1), w: !occ(cc - 1, rr), e: !occ(cc + 1, rr) };
-      const coastAt = (i: number, j: number) => { let dmin = 99, pos = 0;
-        if (open.n && j < dmin) { dmin = j; pos = i; } if (open.s && TILE - 1 - j < dmin) { dmin = TILE - 1 - j; pos = i + 500; }
-        if (open.w && i < dmin) { dmin = i; pos = j + 1000; } if (open.e && TILE - 1 - i < dmin) { dmin = TILE - 1 - i; pos = j + 1500; }
-        return dmin > 26 ? 99 : dmin - (4 + nz(pos + cc * 211 + rr * 97, dmin) * 20); };
-      for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
-        if (i > 27 && i < TILE - 28 && j > 27 && j < TILE - 28) continue;
-        const c3 = coastAt(i, j); if (c3 >= 3) continue;
-        const k = (j * TILE + i) * 4;
-        if (c3 < 0) { d[k + 3] = 0; } else { d[k] = 226; d[k + 1] = 206; d[k + 2] = 160; }
+    });
+  });
+  const img = x.createImageData(MAP_W, MAP_H), d = img.data;
+  const deep: RGB = [34, 56, 92], shallow: RGB = [58, 104, 140], sand: RGB = [226, 206, 160], water: RGB = [58, 120, 176];
+  for (let j = 0; j < NH; j++) for (let i = 0; i < NW; i++) {
+    const o = j * NW + i, sd = land[o];
+    let col: RGB;
+    if (sd > 0) col = sd < 18 ? mix(shallow, deep, sd / 18) : deep;
+    else {
+      const ex = E[Math.min(NW * NH - 1, o + 1)] - E[o], ez = E[Math.min(NW * NH - 1, o + NW)] - E[o];
+      const sh = Math.max(0.6, Math.min(1.32, 1 + (-ex - ez) * 0.05));
+      col = [COL[o * 3] * sh, COL[o * 3 + 1] * sh, COL[o * 3 + 2] * sh];
+      if (WET[o] > 0.5) col = water;
+      if (sd > -5) col = mix(col, sand, 0.75); // beach
+    }
+    for (let b = 0; b < S; b++) for (let a = 0; a < S; a++) { const yy = j * S + b, xx = i * S + a; if (yy >= MAP_H || xx >= MAP_W) continue; const kk = (yy * MAP_W + xx) * 4; d[kk] = col[0]; d[kk + 1] = col[1]; d[kk + 2] = col[2]; d[kk + 3] = 255; }
+  }
+  x.putImageData(img, 0, 0);
+  // gentle sea swell lines
+  x.strokeStyle = 'rgba(200,220,255,.07)'; x.lineWidth = 1;
+  for (let yy = 8; yy < MAP_H; yy += 16) { x.beginPath(); let pen = false; for (let xx = 0; xx <= MAP_W; xx += 8) { const y2 = yy + Math.sin(xx * 0.06 + yy) * 2; if (landSd(xx, y2) < 10) { pen = false; continue; } if (pen) x.lineTo(xx, y2); else x.moveTo(xx, y2); pen = true; } x.stroke(); }
+  const isLand = (px: number, py: number) => landSd(px, py) < -4;
+  const wAt = (k: number, px: number, py: number) => { const i = Math.min(NW - 1, Math.max(0, Math.floor(px / S))), j = Math.min(NH - 1, Math.max(0, Math.floor(py / S))); return land[j * NW + i] > 0 ? 0 : W[(j * NW + i) * centers.length + k]; };
+  // rivers: from the high country down to the sea, meandering
+  const river = (pts: [number, number][]) => {
+    x.strokeStyle = 'rgba(70,130,190,.9)'; x.lineCap = 'round'; x.lineJoin = 'round';
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [a0, b0] = pts[k], [a1, b1] = pts[k + 1];
+      for (let s = 0; s < 1; s += 0.05) {
+        const s2 = s + 0.05, ax = a0 + (a1 - a0) * s, ay = b0 + (b1 - b0) * s, bx = a0 + (a1 - a0) * s2, by = b0 + (b1 - b0) * s2;
+        const off = (q: number, r: number) => (fbm(q / 40, r / 40) - 0.5) * 26;
+        if (!isLand(ax, ay) && !isLand(bx, by)) continue;
+        x.lineWidth = 1.6 + (k + s) * 0.9;
+        x.beginPath(); x.moveTo(ax + off(ay, ax), ay + off(ax, ay)); x.lineTo(bx + off(by, bx), by + off(bx, by)); x.stroke();
       }
-      // transparent sea pixels let the ocean beneath show through
-      const tmp = document.createElement('canvas'); tmp.width = TILE; tmp.height = TILE; tmp.getContext('2d')!.putImageData(img, 0, 0);
-      x.drawImage(tmp, ox, oy);
-      const inSea = (wx: number, wz: number) => coastAt(Math.floor(((wx + 200) / 400) * TILE), Math.floor(((wz + 200) / 400) * TILE)) < 3;
+    }
+  };
+  const cxy = (z: ZoneId, fx: number, fy: number): [number, number] => [PAD + (GRID[z][0] + fx) * TILE, TOP + (GRID[z][1] + fy) * TILE];
+  river([cxy('frozen', 0.6, 0.35), cxy('mountain', 0.75, 0.2), cxy('mountain', 0.55, 0.7), cxy('mountain', 0.2, 1.05), [PAD - 30, TOP + 2.25 * TILE]]);
+  river([cxy('tower', 0.3, 0.75), cxy('capital', 0.85, 0.15), cxy('capital', 0.62, 0.62), cxy('forest', 0.35, 0.25), cxy('forest', 0.1, 0.8), [PAD - 30, TOP + 2.9 * TILE]]);
+  river([cxy('desert', 0.35, 0.3), cxy('desert', 0.8, 0.75), cxy('desert', 1.0, 1.05), [MAP_W + 30, TOP + 2.4 * TILE]]);
+  for (const z of ZONE_IDS) {
+    const g = GRID[z], ox = PAD + g[0] * TILE, oy = TOP + g[1] * TILE, P = PAL[z];
+    withZone(z, () => {
+      const kz = ZONE_IDS.indexOf(z);
+      const inSea = (wx: number, wz: number) => !isLand(ox + ((wx + 200) / 400) * TILE, oy + ((wz + 200) / 400) * TILE);
+      const own = (wx: number, wz: number) => wAt(kz, ox + ((wx + 200) / 400) * TILE, oy + ((wz + 200) / 400) * TILE);
       const zd = buildZone();
       const m = (wx: number, wz: number): [number, number] => [ox + ((wx + 200) / 400) * TILE, oy + ((wz + 200) / 400) * TILE];
       // the Capital: walled stone city on its plateau
@@ -93,7 +166,7 @@ function paintWorld(): HTMLCanvasElement {
       x.setLineDash([]);
       // trees and rocks
       x.fillStyle = '#' + P.tree.toString(16).padStart(6, '0');
-      for (let k = 0; k < zd.trees.length; k++) { const t = zd.trees[k]; if (inSea(t.x, t.z)) continue; const [a, b] = m(t.x, t.z); x.globalAlpha = 0.75; x.beginPath(); x.arc(a, b, t.type >= 7 ? 0.9 : 1.3 + t.s * 0.25, 0, Math.PI * 2); x.fill(); }
+      for (let k = 0; k < zd.trees.length; k++) { const t = zd.trees[k]; if (inSea(t.x, t.z)) continue; const ow = own(t.x, t.z); if (ow < 0.35 || ((k * 7919) % 100) / 100 > ow * 1.4) continue; const [a, b] = m(t.x, t.z); x.globalAlpha = 0.75 * Math.min(1, ow * 1.3); x.beginPath(); x.arc(a, b, t.type >= 7 ? 0.9 : 1.3 + t.s * 0.25, 0, Math.PI * 2); x.fill(); }
       x.globalAlpha = 1;
       // buildings
       x.fillStyle = z === 'forbidden' ? '#5a4a58' : z === 'frozen' ? '#d8e8f8' : z === 'desert' ? '#e8d0a0' : '#d8ccb4';
@@ -104,15 +177,17 @@ function paintWorld(): HTMLCanvasElement {
       }
     });
   }
-  x.strokeStyle = 'rgba(60,40,20,.55)'; x.lineWidth = 1.5; x.setLineDash([4, 4]);
-  for (const z of ZONE_IDS) { const [cc, rr] = GRID[z], ox = PAD + cc * TILE, oy = TOP + rr * TILE;
-    if (occ(cc + 1, rr)) { x.beginPath(); x.moveTo(ox + TILE, oy + 8); x.lineTo(ox + TILE, oy + TILE - 8); x.stroke(); }
-    if (occ(cc, rr + 1)) { x.beginPath(); x.moveTo(ox + 8, oy + TILE); x.lineTo(ox + TILE - 8, oy + TILE); x.stroke(); } }
-  x.setLineDash([]);
   // gates: the roads continue across region borders
-  x.strokeStyle = '#c8a870'; x.lineWidth = 3; x.setLineDash([6, 4]);
-  for (const z of ZONE_IDS) for (const e of REGIONS[z].exits) { if (z > e.to) continue; const a = toMap(z, e.x, e.z), b = toMap(e.to, REGIONS[e.to].exits.find((q) => q.to === z)!.x, REGIONS[e.to].exits.find((q) => q.to === z)!.z); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); }
-  x.setLineDash([]);
+  x.strokeStyle = 'rgba(150,118,72,.95)'; x.lineWidth = 2.6; x.lineCap = 'round';
+  for (const z of ZONE_IDS) for (const e of REGIONS[z].exits) {
+    if (z > e.to) continue;
+    const back = REGIONS[e.to].exits.find((q) => q.to === z)!;
+    // road from this region's town, through the gate, across the border, to the next town
+    const t0 = REGIONS[z].town, t1 = REGIONS[e.to].town;
+    const p0 = toMap(z, t0.x, t0.z), g0 = toMap(z, e.x, e.z), g1 = toMap(e.to, back.x, back.z), p1 = toMap(e.to, t1.x, t1.z);
+    const mx = (g0[0] + g1[0]) / 2, my = (g0[1] + g1[1]) / 2;
+    x.beginPath(); x.moveTo(p0[0], p0[1]); x.quadraticCurveTo(g0[0], g0[1], mx, my); x.quadraticCurveTo(g1[0], g1[1], p1[0], p1[1]); x.stroke();
+  }
   // the Hundredth Tower rises out of the map into the sky
   const [tx] = toMap('tower', REGIONS.tower.tower.x, -200), ty = TOP + GRID.tower[1] * TILE + 20;
   const glow = x.createRadialGradient(tx, ty - 40, 4, tx, ty - 40, 120); glow.addColorStop(0, 'rgba(255,230,160,.65)'); glow.addColorStop(1, 'rgba(255,230,160,0)');

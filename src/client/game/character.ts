@@ -41,6 +41,8 @@ export class CharacterView {
       model = m.model; skeleton = true; scale = m.scale ?? (key === 'warrior' ? 1.12 : 1); tint = m.tint;
       if (m.boss && !m.model.startsWith('q:')) this.height = 2.2 * scale;
       if (m.model.startsWith('q:')) this.beast = { file: m.model.slice(2), tint: m.tint, height: m.height ?? 1.6 };
+    } else if (kind === 's' && NPCS.some((n) => n.key === key && n.body)) {
+      model = 'Knight'; scale = 1; // a companion: drawn as the person, not a spirit
     } else if (kind === 's') {
       const s = SUMMONS[key] ?? SUMMONS.wolf;
       model = s.model; skeleton = true; scale = s.scale; tint = s.tint; this.spirit = s.tint;
@@ -51,10 +53,13 @@ export class CharacterView {
       if (key === 'borin') hide = ['1H_Axe_Offhand', 'Barbarian_Round_Shield', '2H_Axe'];
     }
     const heroNpc: Record<string, [string, number?]> = { aldric: ['Knight_Male'], lyra: ['Wizard_Female_Long', 0xd8c8ff], borin: ['Peasant_Male_SimpleParted'], sela: ['Noble_Female_Long'], guard1: ['Knight_Male', 0xb8c8ff], guard2: ['Knight_Male', 0xb8c8ff], mira: ['Peasant_Female_Long'] };
-    if (kind === 'p' || kind === 'b' || (kind === 'n' && heroNpc[key])) {
+    const npcDef = kind === 'n' || kind === 's' ? NPCS.find((n) => n.key === key) : undefined;
+    if (!heroNpc[key] && npcDef?.body) heroNpc[key] = [npcDef.body, npcDef.tint === 0xffffff ? undefined : npcDef.tint];
+    if (kind === 'p' || kind === 'b' || ((kind === 'n' || kind === 's') && heroNpc[key])) {
       // realistic-proportioned hero body (phase 2)
-      const hm = kind === 'n' ? heroNpc[key][0] : heroModel(key, ap?.body ?? 'm');
-      const look = kind === 'n' ? { tint: heroNpc[key][1], scale: key === 'mira' ? 0.97 : 1 } : { tint: tint === 0xffffff ? undefined : tint, accent, headgear, scale };
+      const isNpc = kind === 'n' || kind === 's';
+      const hm = isNpc ? heroNpc[key][0] : heroModel(key, ap?.body ?? 'm');
+      const look = isNpc ? { tint: heroNpc[key][1], scale: key === 'mira' ? 0.97 : 1 } : { tint: tint === 0xffffff ? undefined : tint, accent, headgear, scale };
       const wantCloak = (kind === 'p' || kind === 'b') ? (ap?.cape ?? true) : (key === 'aldric' || key === 'lyra');
       this.ready = makeHero(hm, look).then((rig) => {
         this.rig = rig; this.hero = rig; this.root.add(rig.root);

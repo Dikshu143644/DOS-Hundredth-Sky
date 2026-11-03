@@ -57,7 +57,11 @@ export type C2S =
   | { type: 'interact'; target: number }
   | { type: 'respawn' }
   | { type: 'equip'; item: string }
-  | { type: 'unequip'; slot: string };
+  | { type: 'unequip'; slot: string }
+  | { type: 'board' }
+  | { type: 'boardTake'; id: string }
+  | { type: 'questDrop'; id: string }
+  | { type: 'companion'; op: 'recruit' | 'dismiss' | 'stay' | 'follow' };
 
 export interface SelfState { hp: number; mhp: number; mp: number; mmp: number; xp: number; xpNext: number; level: number; cds: Record<string, number>; gold: number;
   /** movement multiplier the server applies (slows, buffs, class speed) so prediction matches */ sm?: number; sf?: string; sh?: number; combo?: number; zone?: string }
@@ -78,7 +82,10 @@ export type S2C =
   | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' }
   | { type: 'fx'; kind: 'cast' | 'spell' | 'hit' | 'death' | 'levelup' | 'attack' | 'loot' | 'heal' | 'castfail' | 'combo' | 'dodge' | 'parry' | 'parrystance' | 'react' | 'status' | 'shrine' | 'dash' | 'buff'; src?: number; dst?: number; spell?: string; x?: number; y?: number; z?: number; amount?: number; crit?: boolean; weak?: boolean; text?: string; tx?: number; ty?: number; tz?: number }
   | { type: 'loot'; items: { item: string; rarity: string }[]; gold: number }
-  | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted' }
+  | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted'; action?: string; actionText?: string; valid?: boolean }
+  | { type: 'board'; region: string; rank: string; active: number; max: number; list: BoardEntry[] }
+  | { type: 'ai'; status: 'online' | 'degraded' | 'offline'; npcs: number; calls: number; failures: number; detail: string }
+  | { type: 'companion'; name: string | null; state: 'following' | 'staying' | 'downed' | 'none'; hp?: number; mhp?: number }
   | { type: 'quest'; quest: QuestView; event: 'discovered' | 'progress' | 'complete' | 'step' }
   | { type: 'notice'; text: string; style?: 'info' | 'rank' | 'levelup' | 'warn' }
   | { type: 'died'; by: string; xpLost?: number; goldLost?: number; at?: string; wait?: number; injury?: string; lostItem?: string; rankLost?: number }
@@ -91,6 +98,7 @@ export type S2C =
   | { type: 'kick'; reason: string }
   | { type: 'equipment'; equipment: Record<string, string>; inventory: { item: string; rarity: string; n: number }[]; ok: boolean; error?: string };
 
+export interface BoardEntry { id: string; rank: string; title: string; hook: string; region: string; reward: string; can: boolean; taken: boolean; need?: string }
 export interface QuestStepView { text: string; done: boolean; progress?: string }
 export interface QuestView { id: string; rank: string; title: string; hook: string; steps: QuestStepView[]; current: number; hidden: boolean; complete: boolean; reward: string; source: 'llm' | 'procedural' }
 

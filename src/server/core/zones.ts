@@ -98,6 +98,7 @@ export class Zones {
     const from = p.zone;
     // summons follow their owner
     for (const e of this.g.ents.values()) if (e.type === 's' && (e as any).owner === p.id) this.g.removeEnt(e.id);
+    p.compWasUp = false; // the companion walks through the gate with you
     p.zone = zone; p.char.zone = zone;
     setActiveZone(zone);
     p.s = newCharState(x, z, yaw);
@@ -109,6 +110,7 @@ export class Zones {
     p.conn?.send({ type: 'zone', zone, x: p.s.x, y: p.s.y, z: p.s.z, yaw, weather: this.weatherOf(zone), label, region: REGIONS[zone].name, levels: REGIONS[zone].levels });
     this.g.markDirty();
     this.g.onZoneEnter?.(p, from);
+    if (from !== zone) this.g.advance(p, (s) => s.type === 'zone' && s.target === zone);
   }
   /** What the map / travel panel shows. */
   sendMap(p: Player) {

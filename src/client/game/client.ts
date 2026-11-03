@@ -20,6 +20,8 @@ import { statusWindow, rankingsPanel } from '../ui/status';
 import type { StatusView } from '../../shared/protocol';
 import { worldMap, type MapState } from '../ui/travel';
 import { REGIONS } from '../../shared/regions';
+import { NPCS } from '../../server/core/npcdefs';
+import { openBoard, type BoardUi } from '../ui/questboard';
 import type { ProgressView } from '../../shared/protocol';
 import { heightAt, WATER_LEVEL } from '../../shared/world';
 
@@ -111,7 +113,11 @@ export class GameClient {
         this.inv?.update(m.inventory, m.equipment);
         if (!m.ok && m.error) this.hud.notice(m.error, 'warn');
         break;
-      case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source); break;
+      case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source, m.actionText); break;
+      case 'board': this.boardUi?.update(m); break;
+      case 'ai': this.hud.setAi(m); this.aiStatus = m.status; break;
+      case 'companion': this.hud.setCompanion(m); break;
+      case 'questList' as any: for (const q of (m as any).quests) this.hud.setQuest(q, false); this.hud.pruneQuests((m as any).quests.map((q: any) => q.id)); break;
       case 'quest': this.hud.setQuest(m.quest, m.event === 'discovered'); if (m.event === 'discovered') audio.questReveal(); break;
       case 'notice': this.hud.notice(m.text, m.style); if (m.style === 'levelup') audio.levelUp(); break;
       case 'died': this.dead = true; this.hud.showDeath(m.by, m); audio.death(); break;
@@ -306,6 +312,7 @@ export class GameClient {
     if (this.dead) return;
     if (a === 'target') return this.cycleTarget();
     if (a === 'interact') return this.interact();
+    if (a === 'board') return this.openBoard();
     if (a === 'attack') {
       if (this.casting) return;
       const t = this.targetId ? this.remotes.get(this.targetId) : undefined;
@@ -470,13 +477,21 @@ export class GameClient {
 
   interact() {
     let best: Remote | null = null, bd = 5.5;
-    for (const r of this.remotes.values()) { if (r.t !== 'n') continue; const d = r.view.root.position.distanceTo(this.renderPos); if (d < bd) { bd = d; best = r; } }
+    for (const r of this.remotes.values()) { if (!this.talkable(r)) continue; const d = r.view.root.position.distanceTo(this.renderPos) + (r.t === 's' ? 2.5 : 0); if (d < bd) { bd = d; best = r; } }
     if (best) { this.net.send({ type: 'interact', target: best.id }); this.hud.openDialog(best.id, best.name, best.key); }
   }
   nearestNpc(): Remote | null {
     let best: Remote | null = null, bd = 5.5;
-    for (const r of this.remotes.values()) { if (r.t !== 'n') continue; const d = r.view.root.position.distanceTo(this.renderPos); if (d < bd) { bd = d; best = r; } }
+    for (const r of this.remotes.values()) { if (!this.talkable(r)) continue; const d = r.view.root.position.distanceTo(this.renderPos) + (r.t === 's' ? 2.5 : 0); if (d < bd) { bd = d; best = r; } }
     return best;
+  }
+  /** NPCs, and your own companion, can be talked to. */
+  talkable(r: Remote) { return r.t === 'n' || (r.t === 's' && !!NPCS.find((n) => n.key === r.key && n.role === 'companion')); }
+  boardUi: BoardUi | null = null; aiStatus = 'offline';
+  openBoard() {
+    if (this.boardUi) { this.boardUi.close(); return; }
+    this.boardUi = openBoard({ take: (id) => this.net.send({ type: 'boardTake', id }), close: () => { this.boardUi = null; } });
+    this.net.send({ type: 'board' });
   }
 
   serverNow() { return performance.now() / 1000 + this.serverTimeOffset; }

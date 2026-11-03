@@ -45,6 +45,7 @@ export class Hud {
   private skillEls = new Map<string, { root: HTMLElement; cd: HTMLElement; sp: SpellDef; rank: number; known: boolean }>();
   private castEl!: HTMLElement; private chantEl!: HTMLElement; private castFill!: HTMLElement;
   private chatLog!: HTMLElement; private chatInput!: HTMLInputElement;
+  private compEl!: HTMLElement; private aiEl!: HTMLButtonElement; private aiDetail = 'AI status unknown';
   private questsEl!: HTMLElement; private quests = new Map<string, QuestView>();
   private noticeEl!: HTMLElement;
   private targetEl!: HTMLElement;
@@ -113,6 +114,9 @@ export class Hud {
     this.lvl = unit.querySelector('.lvl span')!;
     [this.hpLag, this.hpBar] = Array.from(unit.querySelectorAll('.hp i')) as HTMLElement[];
     this.hpTxt = unit.querySelector('.hp b')!; this.mpBar = unit.querySelector('.mp i')!; this.mpTxt = unit.querySelector('.mp b')!; this.xpBar = unit.querySelector('.xp i')!;
+    // M3: companion frame + AI status pill
+    this.compEl = el('div', 'comp panel hidden', `<div class="cn"></div><div class="bar2 hp"><i class="v"></i></div><small class="cs"></small>`); this.root.appendChild(this.compEl);
+    this.aiEl = el('button', 'ai-pill off', '<i></i><span>AI</span>') as HTMLButtonElement; this.aiEl.title = 'AI status'; this.aiEl.onclick = () => this.notice(this.aiDetail, 'info'); this.root.appendChild(this.aiEl);
     const net = el('div', 'net panel', `<span class="clock"></span><span class="ping q4"><i></i><i></i><i></i><i></i></span><span class="pt">— ms</span>`);
     this.root.appendChild(net);
     this.pingEl = net.querySelector('.ping')!; this.pingTxt = net.querySelector('.pt')!; this.clockEl = net.querySelector('.clock')!;
@@ -152,9 +156,10 @@ export class Hud {
   }
 
   modalOpen() { return this.menuOpen || !!document.querySelector('.modal'); }
-  toggleMenu() { const open = document.querySelector('.modal [data-close]') as HTMLElement | null; if (open) { open.click(); return; } this.menuOpen = true; document.exitPointerLock?.(); openSettings(this.g.engine, () => { this.menuOpen = false; this.g.input.rebind(); }); }
+  toggleMenu() { if (this.dialogEl) { this.closeDialog(); return; } const open = document.querySelector('.modal [data-close]') as HTMLElement | null; if (open) { open.click(); return; } this.menuOpen = true; document.exitPointerLock?.(); openSettings(this.g.engine, () => { this.menuOpen = false; this.g.input.rebind(); }); }
   focusChat() { this.chatInput.focus(); document.exitPointerLock?.(); }
   toggleMap() { this.mmWrap.classList.toggle('big'); }
+  pruneQuests(ids: string[]) { for (const k of [...this.quests.keys()]) if (!ids.includes(k)) this.quests.delete(k); const first = [...this.quests.values()][0]; if (first) this.setQuest(first, false); else (this.questsEl.querySelector('.ql') as HTMLElement).innerHTML = ''; }
   toggleQuests() { this.questsEl.classList.toggle('hidden'); }
 
   updateSelf(s: SelfState) {
@@ -205,10 +210,10 @@ export class Hud {
       d.innerHTML = `<div class="qt"><span class="rk r-${v.rank}">${esc(v.rank)}</span>${esc(v.title)}${v.complete ? ' ✓' : ''}</div>` +
         (v.hidden ? `<div class="st on">${esc(v.hook)}</div>` : '') +
         v.steps.map((s, i) => `<div class="st ${s.done ? 'done' : i === v.current ? 'on' : ''}">${s.done ? '✓' : i === v.current ? '◆' : '·'} ${esc(s.text)}${s.progress && i === v.current ? ` (${s.progress})` : ''}</div>`).join('') +
-        (v.id !== 'starter' ? `<div class="src">${v.source === 'llm' ? 'written by the AI Story Director' : 'woven by the Story Director'}</div>` : '');
+        (v.source === 'llm' ? '<div class="src">written by the AI Story Director</div>' : '');
       ql.appendChild(d);
     }
-    if (revealed) { this.chat('World', `A hidden scenario has opened for you: Rank ${q.rank}. "${q.hook}"`, 'world'); }
+    if (revealed && q.hidden) { this.chat('World', `A hidden scenario has opened for you: Rank ${q.rank}. "${q.hook}"`, 'world'); }
   }
 
   startCast(sp: SpellDef) {
@@ -266,7 +271,7 @@ export class Hud {
     const def = NPCS.find((n) => n.key === key);
     this.dialogNpc = npcId;
     const d = el('div', 'dialog panel', `<span class="crn tr"></span><span class="crn bl"></span><div class="who">${esc(name)}<small>${esc(def?.title ?? '')}</small></div><div class="txt">…</div>
-      <div class="opts"></div><div class="row"><input maxlength="160" placeholder="${def?.important ? 'Say anything — they remember you…' : 'Say something…'}" /><button class="btn" style="min-height:40px;padding:6px 18px">Say</button><button class="btn ghost" style="min-height:40px;padding:6px 14px">✕</button></div>${def?.important ? '<div class="ai" style="margin-top:8px"></div>' : ''}`);
+      <div class="opts"></div><div class="row"><input maxlength="160" placeholder="${def?.ai ? 'Say anything — they remember you…' : 'Say something…'}" /><button class="btn" style="min-height:40px;padding:6px 18px">Say</button><button class="btn ghost" style="min-height:40px;padding:6px 14px">✕</button></div>${def?.ai ? '<div class="ai" style="margin-top:8px"></div>' : ''}`);
     const input = d.querySelector('input')!;
     const send = (t: string) => { if (!t.trim()) return; this.g.net.send({ type: 'talk', npc: npcId, text: t.trim() }); (d.querySelector('.txt') as HTMLElement).textContent = '…'; input.value = ''; };
     const [say, close] = Array.from(d.querySelectorAll('button')) as HTMLButtonElement[];
@@ -276,20 +281,35 @@ export class Hud {
     input.addEventListener('blur', () => { this.g.input.typing = false; });
     input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') send(input.value); if (e.key === 'Escape') this.closeDialog(); });
     const opts = d.querySelector('.opts')!;
-    const choices = def?.important ? (key === 'lyra' ? ['Tell me about the Tower.', 'What do you know about the Shrine?', 'Do you have work for me?'] : ['What is happening at the Ruins?', 'Do you have work for me?', 'Who are you, really?']) : ['Hello!', 'Any news?'];
+    const choices = def?.role === 'companion' ? ['Join me — let\'s climb together.', 'How are you holding up?', 'Leave the party for now.'] : def?.role === 'guild' ? ['Register me, please.', 'Any bounties for my rank?', 'Who is Rin?'] : key === 'lyra' ? ['Tell me about the Tower.', 'What do you know about the Shrine?', 'Do you have work for me?'] : key === 'aldric' ? ['What is happening at the Ruins?', 'Do you have work for me?', 'Who are you, really?'] : def?.ai ? ['Who are you?', 'Do you have work for me?', 'Any secrets in this place?'] : ['Hello!', 'Any work for me?'];
     for (const c of choices) { const b = el('button', '', esc(c)); b.onclick = () => send(c); opts.appendChild(b); }
+    if (def?.role === 'guild') { const b = el('button', 'board-open', 'Open the quest board'); b.onclick = () => { this.closeDialog(); this.g.action('board'); }; opts.appendChild(b); }
     this.root.appendChild(d);
     this.dialogEl = d;
     document.exitPointerLock?.();
   }
   closeDialog() { this.dialogEl?.remove(); this.dialogEl = null; this.dialogNpc = 0; this.g.input.typing = false; }
-  npcSay(npc: number, name: string, text: string, source: string) {
+  setAi(m: { status: string; npcs: number; detail: string }) {
+    this.aiEl.className = 'ai-pill ' + m.status; this.aiDetail = m.detail;
+    (this.aiEl.querySelector('span') as HTMLElement).textContent = m.status === 'online' ? 'AI online' : m.status === 'degraded' ? 'AI busy' : 'AI offline';
+    this.aiEl.dataset.status = m.status;
+  }
+  setCompanion(m: { name: string | null; state: string; hp?: number; mhp?: number }) {
+    this.compEl.classList.toggle('hidden', !m.name || m.state === 'none');
+    if (!m.name) return;
+    (this.compEl.querySelector('.cn') as HTMLElement).textContent = m.name;
+    (this.compEl.querySelector('.cs') as HTMLElement).textContent = m.state === 'downed' ? 'down — back in 30 s' : 'following · fights beside you';
+    (this.compEl.querySelector('.v') as HTMLElement).style.width = (m.state === 'downed' ? 0 : Math.max(0, Math.min(100, ((m.hp ?? 1) / (m.mhp ?? 1)) * 100))) + '%';
+  }
+  npcSay(npc: number, name: string, text: string, source: string, actionText?: string) {
+    if (actionText) this.notice(`${name} ${actionText}`, 'rank');
     if (!this.dialogEl || this.dialogNpc !== npc) { this.chat(name, text, 'npc'); return; }
     const t = this.dialogEl.querySelector('.txt') as HTMLElement;
     t.textContent = '';
     let i = 0;
     const iv = setInterval(() => { t.textContent = text.slice(0, (i += 2)); if (i >= text.length) clearInterval(iv); }, 16);
-    const ai = this.dialogEl.querySelector('.ai'); if (ai) ai.textContent = source === 'llm' ? '◆ AI dialogue · remembers you' : '◆ scripted line (AI offline or resting)';
+    t.dataset.done = '0'; setTimeout(() => { t.dataset.done = '1'; }, 16 * (text.length / 2 + 2));
+    const ai = this.dialogEl.querySelector('.ai'); if (ai) ai.innerHTML = (source === 'llm' ? '<b class="on">AI</b> remembers you' : '<b>scripted</b> AI resting') + (actionText ? ` · <em>${esc(actionText)}</em>` : '');
     this.chat(name, text, 'npc');
   }
 

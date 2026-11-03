@@ -65,3 +65,7 @@ The setting, names and lore come from Omkar Supe's *DOS: The Hundredth Sky* Game
 
 - **Monsters**: Quaternius "Ultimate Monsters", "Animated Monster Pack" and "Ultimate Animated Animals" (wolf, yeti, mushnub, goleling, orc, ghost, ghost skull, demons, squidle, hywirl, mushroom king, spiky blob, glub, dragon (evolved), bat, snake, spider, wasp, dragon, dino, tribal, ninja, armabee, alien) by **Quaternius** (https://quaternius.com, via https://poly.pizza) — **CC0 1.0** public domain. Unused clips removed and meshes meshopt-compressed with `tools/monsters.mjs`. Copies were taken from CC0 mirrors in the open-source repos travism26/frostmark, cLLeB/Depth-Of-The-Forgotten-King, g0ddest/renethack and JieeiroSst/Knight-of-the-Garden; each states the Quaternius CC0 licence.
 - **Textures**: "Snow 02" and "Aerial Rocks 04" from **Poly Haven** (https://polyhaven.com) — **CC0 1.0**. Re-encoded to WebP (1024²).
+
+## UI
+- **Lucide icons** (https://lucide.dev), ISC licence: inline line icons in `src/client/ui/icons.ts`.
+- **Inter** typeface by Rasmus Andersson (https://rsms.me/inter), SIL Open Font Licence 1.1, via Fontsource.

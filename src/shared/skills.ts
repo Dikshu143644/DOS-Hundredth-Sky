@@ -212,6 +212,7 @@ export function reaction(el: Element, st: { soaked?: boolean; burning?: boolean;
 
 /** Summoned spirits (models are monster rigs drawn as glowing translucent spirits). */
 export const SUMMONS: Record<string, { name: string; model: string; hp: number; range: number; cd: number; speed: number; ranged: boolean; tint: number; scale: number; el: Element }> = {
+  rin: { name: 'Rin', model: 'Skeleton_Minion', hp: 0.9, range: 2.5, cd: 0.95, speed: 5.6, ranged: false, tint: 0xc8e0ff, scale: 1, el: 'wind' },
   wolf: { name: 'Wolf Spirit', model: 'Skeleton_Minion', hp: 0.45, range: 2.2, cd: 1.1, speed: 5.2, ranged: false, tint: 0x9fe8ff, scale: 0.85, el: 'wind' },
   golem: { name: 'Stone Golem', model: 'Skeleton_Warrior', hp: 1.4, range: 2.6, cd: 1.8, speed: 3.2, ranged: false, tint: 0xc8a070, scale: 1.45, el: 'earth' },
   drake: { name: 'Ancient Drake', model: 'Skeleton_Mage', hp: 1.0, range: 14, cd: 1.6, speed: 5.0, ranged: true, tint: 0xff8a3a, scale: 1.7, el: 'fire' },

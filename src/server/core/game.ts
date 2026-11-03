@@ -12,7 +12,9 @@ import {
 import { ITEMS, LEGENDARY_IDS, STARTER_WEAPON, CLASS_GIFT, SLOTS, Slot, Equipment, equip, unequip, equipBonus, addItem, rarityOf } from '../../shared/items';
 import { C2S, S2C, NetEntity, CharacterSummary, Appearance, SelfState, PROTOCOL_VERSION, sanitizeName, sanitizeChat } from '../../shared/protocol';
 import { InputBudget } from '../../shared/netcode';
-import { NPCS, NpcDef } from './npcdefs';
+import { NPCS, NpcDef, npcByKey } from './npcdefs';
+import { QuestSys } from './questsys';
+import { scheduleAt } from '../../shared/npcai';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
 import { LlmGate, LlmFn, parseJsonLoose, wholeSentences } from './llm';
 import { Quest, SPARKS, generateQuest, questView, DirectorContext } from './director';
@@ -30,6 +32,7 @@ export interface CharRecord {
   shrines?: string[]; bind?: string; visited?: string[];
   origin?: { done: boolean; notes: string[]; pastLife?: string; cheat?: string; affinity?: string; rewindAt?: number };
   fusions?: string[]; advPts?: number; rankProtectUntil?: number; injuries?: Injury[];
+  companion?: string;
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -51,7 +54,7 @@ export interface GameOptions {
 export type EntType = 'p' | 'm' | 'n' | 'b' | 's';
 export interface Ent { id: number; type: EntType; s: CharState; hp: number; mhp: number; anim: string; animUntil: number; name: string; model: string; dead: boolean; stunUntil: number; level: number; st: FxStatus; zone: string }
 
-export interface Player extends Ent { exitWarn?: number;
+export interface Player extends Ent { exitWarn?: number; compDownUntil?: number; compWasUp?: boolean;
   conn: Conn | null; user: string; char: CharRecord; stats: Stats; mp: number; cds: Record<string, number>;
   inputs: MoveInput[]; budget: InputBudget; lastSeq: number; known: Set<number>;
   casting: null | { spell: string; until: number; target?: number; aim?: { x: number; y: number; z: number }; yaw: number };
@@ -99,6 +102,7 @@ export class Game {
   progress: Progression;
   zones!: Zones;
   origin!: Origin;
+  quests!: QuestSys;
   onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
@@ -115,6 +119,7 @@ export class Game {
     this.progress = new Progression(this);
     this.zones = new Zones(this);
     this.origin = new Origin(this);
+    this.quests = new QuestSys(this);
     for (const z of ZONE_IDS) withZone(z, () => buildZone());
     setActiveZone('capital');
     this.zones.spawnAll();
@@ -235,6 +240,10 @@ export class Game {
       case 'fuse': this.origin.fuse(p, String((m as any).a), String((m as any).b)); return;
       case 'status': this.origin.sendStatus(p); return;
       case 'leaderboard': this.origin.leaderboard(p); return;
+      case 'board': this.quests.sendBoard(p); return;
+      case 'boardTake': this.quests.take(p, String((m as any).id)); return;
+      case 'questDrop': this.quests.drop(p, String((m as any).id)); return;
+      case 'companion': { const op = (m as any).op; if (op === 'recruit') { const rin = [...this.ents.values()].find((e) => e.type === 'n' && (e as Npc).def.role === 'companion' && e.zone === p.zone && Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z) < 8); if (rin) this.quests.recruit(p, (rin as Npc).def.key); } else if (op === 'dismiss') this.quests.dismiss(p); return; }
       case 'travel': this.zones.travel(p, String(m.shrine ?? ''), now); return;
       case 'map': this.zones.sendMap(p); return;
       case 'allocStat': this.progress.allocStat(p, String(m.attr), Number(m.n ?? 1)); return;
@@ -284,6 +293,7 @@ export class Game {
     if (cmd === 'zone' && arg && arg in REGIONS) { const r = REGIONS[arg as 'capital']; this.zones.move(p, r.id, r.spawn.x, r.spawn.z, r.spawn.yaw, r.name); return; }
     if (cmd === 'boss') { const r = REGIONS[p.zone as 'capital']; p.s = newCharState(r.boss.x + 14, r.boss.z + 14, p.s.yaw); p.inputs.length = 0; return; }
     if (cmd === 'tp') { withZone(p.zone, () => { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } }); return; }
+    if (cmd === 'goto') { const n = [...this.ents.values()].find((e) => e.type === 'n' && (e as Npc).def.key === arg) as Npc | undefined; if (n) { if (n.zone !== p.zone) this.zones.move(p, n.zone as any, n.s.x + 1.6, n.s.z + 1.6, p.s.yaw, REGIONS[n.zone as 'capital'].name); else withZone(p.zone, () => { p.s = newCharState(n.s.x + 1.6, n.s.z + 1.6, p.s.yaw); p.inputs.length = 0; }); } return; }
     if (cmd === 'xp') { this.giveXp(p, Number(arg) || 100); return; }
     sys('Dev commands: /time H, /weather clear|rain|storm|fog|snow|blizzard|sandstorm|ash, /zone id, /boss, /tp poi, /xp N, /who, /where');
   }
@@ -329,8 +339,10 @@ export class Game {
     if (!bot && this.origin.needsPrologue(ch)) (p as any).hidden = true;
     if (!bot) {
       this.ensureStarterQuest(p);
+      this.quests.ensureStory(p);
       queueMicrotask(() => this.zones.sendMap(p));
       conn!.send({ type: 'joined', prologue: !bot && this.origin.needsPrologue(ch), id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
+      conn!.send(this.quests.aiStatus());
       if (!(p as any).hidden) this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
       this.progress.send(p);
       this.progress.award(p, 'newcomer');
@@ -360,7 +372,8 @@ export class Game {
   }
   private spawnNpc(def: NpcDef) {
     const id = this.nextId++;
-    const n: Npc = { id, type: 'n', s: newCharState(def.work.x, def.work.z, def.work.yaw ?? 0), hp: 1, mhp: 1, anim: 'idle', animUntil: 0, name: def.name, model: def.key, dead: false, stunUntil: 0, level: 30, st: newStatus(), zone: 'capital',
+    const zone = def.zone ?? 'capital';
+    const n: Npc = { id, type: 'n', s: withZone(zone, () => newCharState(def.work.x, def.work.z, def.work.yaw ?? 0)), hp: 1, mhp: 1, anim: 'idle', animUntil: 0, name: def.name, model: def.key, dead: false, stunUntil: 0, level: 30, st: newStatus(), zone,
       def, bt: npcTree(this), talkTo: 0, talkUntil: 0, patrolIdx: 0, hidden: false, goal: null };
     this.ents.set(id, n);
   }
@@ -390,6 +403,7 @@ export class Game {
       for (const p of this.players.values()) if (p.zone === z && !p.dead) this.combat.tickStatus(p, now);
     }
     this.tickProjectiles(now, dt);
+    this.quests.tick(now, dt);
     setActiveZone(prevZone);
     this.sendSnapshots(now);
     if (this.dirty && now - this.lastSave > 5) this.flush();
@@ -510,6 +524,7 @@ export class Game {
       p.streak = 0;
       p.respawnAt = now + 8;
       for (const s of [...this.ents.values()]) if (s.type === 's' && (s as Summon).owner === p.id) this.removeEnt(s.id);
+      p.compWasUp = false;
       const pen = p.type === 'p' ? this.combat.deathPenalty(p) : { xpLost: 0, goldLost: 0 };
       const lasting = this.origin.onDeath(p, src);
       p.conn?.send({ type: 'died', by: src.name, xpLost: pen.xpLost, goldLost: pen.goldLost, at: this.shrineName(p), wait: 8, ...lasting });
@@ -756,41 +771,36 @@ export class Game {
   }
 
   async talk(p: Player, npcId: number, text: string, now: number) {
-    const n = this.ents.get(npcId) as Npc | undefined;
-    if (!n || n.type !== 'n' || n.hidden) return;
+    const e = this.ents.get(npcId);
+    const comp = e?.type === 's' && (e as Summon).owner === p.id ? npcByKey((e as Summon).kind) : undefined; // your companion
+    const n = e as Npc | undefined;
+    if (!n || (!comp && (n.type !== 'n' || n.hidden))) return;
     if (Math.hypot(n.s.x - p.s.x, n.s.z - p.s.z) > 6) return p.conn?.send({ type: 'notice', text: 'Too far away to talk.', style: 'warn' });
-    if (now - p.lastTalk < 1.5) return;
+    if (now - p.lastTalk < 1.5) { // too fast: answer this one a moment later instead of dropping it
+      if (!(p as any).talkQueued) { (p as any).talkQueued = true; setTimeout(() => { (p as any).talkQueued = false; p.lastTalk = -99; void this.talk(p, npcId, text, this.o.now()); }, Math.max(50, (1.5 - (now - p.lastTalk)) * 1000)); }
+      return;
+    }
     p.lastTalk = now;
-    n.talkTo = p.id; n.talkUntil = now + 12;
-    const def = n.def;
+    if (!comp) { n.talkTo = p.id; n.talkUntil = now + 12; }
+    const def = comp ?? n.def;
     const mem = this.memory(def.key, p.char.id);
     const firstMeet = mem.met === 0;
     mem.met++; mem.lastSeen = Date.now();
     this.onTalk(p, def.key);
     if (text) mem.short.push({ who: 'player', text });
-    let say = '', mood = 'neutral', source: 'llm' | 'scripted' = 'scripted';
-    if (def.important && text && this.llm.enabled) {
-      const pers = def.personality!;
-      const quest = p.char.quests.find((q) => !q.complete);
-      const sys = `You are ${def.name}, ${def.title}, an NPC in the anime-fantasy MMORPG "DOS: The Hundredth Sky" (a world beneath a mysterious 100-floor tower). Stay fully in character, never mention being an AI or a game.
-Personality: ${pers.traits}. Speech: ${pers.speech}. Goal: ${pers.goal}. Secret (only hint at it if trust is high): ${pers.secret}. You know: ${pers.knows.join('; ')}.
-Reply with ONLY JSON: {"say": "your spoken reply, max 60 words", "mood": "one word", "remember": "one short new fact about this player worth remembering, or empty"}`;
-      const ctx = `WORLD MEMORY: it is ${this.timeOfDay()}, weather ${this.weather}. Recent events: ${this.data.worldEvents.slice(-4).join('; ') || 'quiet'}.
-LONG-TERM MEMORY of this player: name ${p.name}, a level ${p.char.level} ${classById(p.char.cls).name}; met ${mem.met} times; kills ${p.char.kills}; deaths ${p.char.deaths}. ${mem.long.join('; ')}
-Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
-      const history = mem.short.slice(-8).map((s) => ({ role: (s.who === 'player' ? 'user' : 'assistant') as 'user' | 'assistant', content: s.text }));
-      const reply = parseJsonLoose<{ say?: string; mood?: string; remember?: string }>(await this.llm.ask(p.user, [{ role: 'system', content: sys }, { role: 'user', content: ctx }, ...history], { maxTokens: 500, temperature: 0.85, json: true }));
-      if (reply?.say) {
-        say = wholeSentences(String(reply.say), 420); mood = String(reply.mood ?? 'neutral').slice(0, 20); source = 'llm';
-        if (reply.remember && String(reply.remember).length > 3) { mem.long.push(String(reply.remember).slice(0, 120)); if (mem.long.length > 12) mem.long.shift(); }
-      }
+    let say = '', mood = 'neutral', source: 'llm' | 'scripted' = 'scripted', action: string | undefined, actionText: string | undefined, valid: boolean | undefined;
+    if (def.ai && text) {
+      const r = await this.quests.aiTalk(p, def, mem, text);
+      if (r) { say = r.say; mood = r.mood; source = 'llm'; action = r.action; actionText = r.actionText; valid = r.valid; }
     }
+    if (!actionText) actionText = this.quests.scriptedTriggers(p, def, mem, text);
+    if (!actionText) { const given = this.quests.offerOnTalk(p, def); if (given) actionText = 'gave you a quest'; }
     if (!say) say = this.scriptedLine(def, p, mem, firstMeet, text);
     if (def.key === 'lyra' && /tower|floor|hundred/i.test(text)) this.spark(p, 'asked_tower');
     mem.short.push({ who: 'npc', text: say });
     if (mem.short.length > 16) mem.short.splice(0, mem.short.length - 16);
     this.markDirty();
-    p.conn?.send({ type: 'npcSay', npc: n.id, name: def.name, text: say, mood, source });
+    p.conn?.send({ type: 'npcSay', npc: n.id, name: def.name, text: say, mood, source, action, actionText, valid });
   }
 
   private scriptedLine(def: NpcDef, p: Player, mem: NpcMemory, first: boolean, text: string): string {
@@ -837,7 +847,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
     });
   }
 
-  private advance(p: Player, match: (s: Quest['steps'][number]) => boolean, amount = 1) {
+  advance(p: Player, match: (s: Quest['steps'][number]) => boolean, amount = 1) {
     for (const q of p.char.quests) {
       if (q.complete) continue;
       const st = q.steps[q.current];
@@ -849,7 +859,8 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
         if (q.current >= q.steps.length) {
           q.complete = true;
           this.giveXp(p, q.xp);
-          p.char.gold += 25 * (1 + ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS', '???'].indexOf(q.rank));
+          p.char.gold += q.gold ?? 25 * (1 + ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS', '???'].indexOf(q.rank));
+          this.quests.onComplete(p, q);
           p.conn?.send({ type: 'notice', text: `Quest complete — ${q.title} (Rank ${q.rank})`, style: 'rank' });
           this.worldEvent(`${p.name} completed the ${q.rank}-rank scenario "${q.title}"`);
           p.conn?.send({ type: 'quest', quest: questView(q), event: 'complete' });
@@ -954,6 +965,7 @@ Active quest: ${quest ? quest.title + ' (' + quest.rank + ')' : 'none'}.`;
         if (e.id === p.id) continue;
         if ((e as Npc).hidden) continue;
         if (e.zone !== p.zone) continue;
+        if (e.type === 'n' && (e as Npc).def.role === 'companion' && p.char.companion === (e as Npc).def.key) continue; // she is walking with you
         const d = Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z);
         if (d > 150) continue;
         seen.add(e.id);
@@ -1012,23 +1024,24 @@ function animKey(a: string): string {
  *  Selector[ talking → face player | night → go home & sleep | patrol (guards) | work hours → work spot | evening → tavern ] */
 function npcTree(g: Game): BTNode<Npc> {
   const goTo = (spot: (n: Npc) => { x: number; z: number; anim: string; yaw?: number }) => new Act<Npc>((n) => { n.goal = spot(n); n.hidden = false; return 'running'; });
+  const spotNow = (n: Npc) => (n.def.schedule ? scheduleAt(n.def.schedule, g.worldTime)?.spot : undefined) ?? (g.worldTime < 6 || g.worldTime > 22.5 ? 'home' : g.worldTime >= 7 && g.worldTime < 18.5 ? 'work' : 'tavern');
   return new Selector<Npc>([
     new Sequence<Npc>([new Cond((n) => n.talkTo !== 0 && g.o.now() < n.talkUntil), new Act<Npc>((n) => { n.goal = null; return 'running'; })]),
-    new Sequence<Npc>([new Cond((n) => !n.def.patrol && !n.def.important && (g.worldTime < 6 || g.worldTime > 22.5)), new Act<Npc>((n) => {
-      n.goal = { x: n.def.home.x, z: n.def.home.z + 6, anim: 'Idle' };
+    new Sequence<Npc>([new Cond((n) => !n.def.patrol && spotNow(n) === 'home'), new Act<Npc>((n) => {
+      n.goal = { x: n.def.home.x, z: n.def.home.z, anim: 'Idle' };
       const d = Math.hypot(n.s.x - n.goal.x, n.s.z - n.goal.z);
       n.hidden = d < 1.2; // went inside to sleep
       return 'running';
     })]),
-    new Sequence<Npc>([new Cond((n) => !!n.def.patrol), new Act<Npc>((n) => {
+    new Sequence<Npc>([new Cond((n) => !!n.def.patrol && spotNow(n) !== 'home'), new Act<Npc>((n) => {
       const pts = n.def.patrol!;
       const t = pts[n.patrolIdx % pts.length];
       if (Math.hypot(n.s.x - t.x, n.s.z - t.z) < 1.2) n.patrolIdx++;
       n.goal = { x: t.x, z: t.z, anim: 'Idle' };
       return 'running';
     })]),
-    new Sequence<Npc>([new Cond(() => g.worldTime >= 7 && g.worldTime < 18.5), goTo((n) => n.def.work)]),
-    goTo((n) => n.def.evening),
+    new Sequence<Npc>([new Cond((n) => spotNow(n) === 'tavern'), goTo((n) => n.def.evening)]),
+    goTo((n) => n.def.work),
   ]);
 }
 

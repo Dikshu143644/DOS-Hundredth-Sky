@@ -34,7 +34,7 @@ try {
   step('the truck, the white, and the void');
   await page.waitForSelector('#create.over-void', { timeout: 20000 });
   await page.click('#create .classbtn[data-c=mage]');
-  await page.fill('#create [data-name]', 'Haruto');
+  await page.fill('#create [data-name]', 'Haruto' + 'abcdefghij'[Date.now() % 10] + 'klmnopqrst'[Math.floor(Date.now() / 10) % 10]);
   await page.waitForTimeout(2500); await shot('pro_2_soul.jpg');
   await page.click('#create [data-create]');
   // Act II: the Goddess
