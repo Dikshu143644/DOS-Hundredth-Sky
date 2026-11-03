@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { floorPlan, themeOf, TRAP, SYMBOLS, type FloorPlan } from '../../shared/tower';
 import { worldUV } from './city';
+import { arenaPlan, type ArenaKind } from '../../shared/instances';
 import { tex } from './assets';
 
 export interface TowerView { floor: number; seal: boolean; lit: number[]; braziers: number[]; order: number[] | null; chest: boolean; now: number }
@@ -121,5 +122,32 @@ export class FloorDeco {
     this.braziers.forEach((f, k) => { const on = !!st?.braziers[k] || !!st?.seal; (f.material as THREE.SpriteMaterial).opacity = on ? 0.95 : 0; const q = 0.9 + Math.sin(t * 12 + k) * 0.1; f.scale.set(1.6 * q, 2.4 * q, 1); });
     if (this.chest) this.chest.rotation.x = st?.chest ? -1.1 : 0;
   }
+  dispose(scene: THREE.Scene) { scene.remove(this.group); this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); }
+}
+
+/** Phase 4 · M6: the Crimson Ring (PvP) and the Eclipse Throne (raid): a parapet ring, pillars and floor rings. */
+export class ArenaDeco {
+  group = new THREE.Group();
+  constructor(scene: THREE.Scene, kind: ArenaKind) {
+    scene.add(this.group);
+    const P = arenaPlan(kind);
+    const stone = new THREE.MeshStandardMaterial({ map: tex('tex/brick_col.jpg'), normalMap: tex('tex/brick_nor.jpg', { srgb: false }), color: P.wall, roughness: 0.9, side: THREE.DoubleSide });
+    const trim = new THREE.MeshStandardMaterial({ map: tex('tex/rock_col.jpg'), normalMap: tex('tex/rock_nor.jpg', { srgb: false }), color: P.wall, roughness: 0.85 });
+    const wall = new THREE.Mesh(worldUV(new THREE.CylinderGeometry(P.wallR + 0.6, P.wallR + 0.6, 2.4, 96, 1, true), 4), stone); wall.position.y = 1.2; wall.receiveShadow = true; this.group.add(wall);
+    const inner = new THREE.Mesh(worldUV(new THREE.CylinderGeometry(P.wallR - 0.6, P.wallR - 0.6, 2.4, 96, 1, true), 4), stone); inner.position.y = 1.2; this.group.add(inner);
+    const cap = new THREE.Mesh(new THREE.RingGeometry(P.wallR - 0.8, P.wallR + 0.8, 96).rotateX(-Math.PI / 2), trim); cap.position.y = 2.42; this.group.add(cap);
+    for (const p of P.pillars) {
+      const m = new THREE.Mesh(worldUV(new THREE.CylinderGeometry(p.r, p.r * 1.15, p.h, 16), 3), stone); m.position.set(p.x, p.h / 2, p.z); m.castShadow = true; m.receiveShadow = true; this.group.add(m);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 1.35, p.r * 1.2, 0.5, 16), trim); top.position.set(p.x, p.h + 0.25, p.z); this.group.add(top);
+    }
+    const ringMat = new THREE.MeshBasicMaterial({ color: P.accent, transparent: true, opacity: 0.45, depthWrite: false });
+    for (const r of kind === 'raid' ? [8, 8.3, 18, 30] : [5, 5.25, 14]) { const m = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.18, 96).rotateX(-Math.PI / 2), ringMat); m.position.y = 0.03; this.group.add(m); }
+    if (kind === 'raid') {
+      const dais = new THREE.Mesh(worldUV(new THREE.CylinderGeometry(8, 8.6, 0.4, 48), 3), trim); dais.position.y = 0.2; dais.receiveShadow = true; this.group.add(dais);
+    } else {
+      for (const e of P.entry) { const m = new THREE.Mesh(new THREE.CircleGeometry(1.6, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false })); m.position.set(e.x, 0.04, e.z); this.group.add(m); }
+    }
+  }
+  update(t: number) { void t; }
   dispose(scene: THREE.Scene) { scene.remove(this.group); this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); }); }
 }

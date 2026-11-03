@@ -35,6 +35,7 @@ export type C2S =
   | { type: 'createChar'; name: string; cls: ClassId; appearance: Appearance }
   | { type: 'deleteChar'; id: string }
   | { type: 'join'; charId: string }
+  | { type: 'social'; op: string; [k: string]: unknown }
   | { type: 'input'; seq: number; mx: number; mz: number; yaw: number; jump: boolean; sprint: boolean; walk: boolean; dt: number; dodge?: boolean }
   | { type: 'parry' }
   | { type: 'resync' }
@@ -85,7 +86,8 @@ export type S2C =
   | { type: 'joined'; id: number; t: number; worldTime: number; weather: string; char: CharacterSummary; self: SelfState; inventory: { item: string; rarity: string; n: number }[]; quests: QuestView[]; equipment?: Record<string, string>; zone?: string; prologue?: boolean }
   | { type: 'snap'; t: number; ack: number; me: { x: number; y: number; z: number; vx: number; vy: number; vz: number; g: boolean; sw: boolean; yaw: number; dg?: number; dc?: number; ddx?: number; ddz?: number }; ents: NetEntity[]; gone: number[]; self: SelfState; worldTime: number; weather: string }
   | { type: 'pong'; t: number; st: number }
-  | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' }
+  | { type: 'party' | 'guild' | 'invite' | 'arena' | 'raid' | 'worldboss'; [k: string]: any }
+  | { type: 'chat'; from: string; text: string; channel: 'say' | 'system' | 'npc' | 'world' | 'party' | 'guild' }
   | { type: 'fx'; kind: 'cast' | 'spell' | 'hit' | 'death' | 'levelup' | 'attack' | 'loot' | 'heal' | 'castfail' | 'combo' | 'dodge' | 'parry' | 'parrystance' | 'react' | 'status' | 'shrine' | 'dash' | 'buff'; src?: number; dst?: number; spell?: string; x?: number; y?: number; z?: number; amount?: number; crit?: boolean; weak?: boolean; text?: string; tx?: number; ty?: number; tz?: number }
   | { type: 'loot'; items: { item: string; rarity: string }[]; gold: number }
   | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted'; action?: string; actionText?: string; valid?: boolean }

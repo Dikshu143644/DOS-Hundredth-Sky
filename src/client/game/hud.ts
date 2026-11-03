@@ -153,6 +153,7 @@ export class Hud {
     const mb = el('button', 'menu-btn', '☰'); mb.onclick = () => this.toggleMenu(); this.root.appendChild(mb);
     const ib = el('button', 'inv-btn', '🎒'); ib.title = 'Inventory (I)'; ib.onclick = () => this.g.openInventory(); this.root.appendChild(ib);
     const ab = el('button', 'inv-btn ar', '⚔'); ab.title = 'Legendary armory (K)'; ab.onclick = () => this.g.action('armory'); this.root.appendChild(ab);
+    const sb = el('button', 'inv-btn soc-btn', '⚑'); sb.title = 'Social: party, guild, arena, events (O)'; sb.onclick = () => this.g.action('social'); this.root.appendChild(sb);
     const hb = el('button', 'inv-btn hero-btn', '✦<i class="dot" style="display:none"></i>'); hb.title = 'Hero: stats, skills, titles (P)'; hb.onclick = () => this.g.action('hero'); this.root.appendChild(hb);
     this.chat('System', `Welcome, ${char.name}. WASD move · mouse look · 1–4 skills · R ultimate · F attack (chain for combos) · Q dodge · V parry · P hero · E talk · Esc menu.`, 'system');
     if (g.net.mode === 'offline') this.chat('System', 'Offline world: the same server code runs in your browser, with AI adventurers for company.', 'system');
@@ -331,6 +332,21 @@ export class Hud {
   }
   hideDeath() { this.deathEl?.remove(); this.deathEl = null; }
 
+  private partyEl: HTMLElement | null = null;
+  private eventEl: HTMLElement | null = null;
+  /** Phase 4 · M6: party frames under the unit frame (everyone but you). */
+  setParty(p: { leader: number; members: { id: number; name: string; level: number; hp: number; mhp: number; dead: boolean; cls: string }[] } | null, me: number) {
+    const others = p ? p.members.filter((m) => m.id !== me) : [];
+    if (!others.length) { this.partyEl?.remove(); this.partyEl = null; return; }
+    if (!this.partyEl) { this.partyEl = el('div', 'pt-frames'); this.root.appendChild(this.partyEl); }
+    this.partyEl.innerHTML = others.map((m) => `<div class="pt-f ${m.dead ? 'dead' : ''}"><div class="pt-n">${m.id === p!.leader ? '♛ ' : ''}${esc(m.name)}<small>${m.level}</small></div><div class="pt-hp"><i style="width:${Math.round((100 * m.hp) / Math.max(1, m.mhp))}%"></i></div></div>`).join('');
+  }
+  setEvent(e: { title: string; text: string; hp?: number; cls: string } | null) {
+    if (!e) { this.eventEl?.remove(); this.eventEl = null; return; }
+    if (!this.eventEl) { this.eventEl = el('div', 'ev-chip'); this.root.appendChild(this.eventEl); }
+    this.eventEl.className = 'ev-chip ' + e.cls;
+    this.eventEl.innerHTML = `<b>${esc(e.title)}</b><small>${esc(e.text)}</small>${e.hp !== undefined ? `<div class="ev-hp"><i style="width:${Math.max(0, Math.min(100, e.hp * 100)).toFixed(1)}%"></i></div>` : ''}`;
+  }
   private towerEl: HTMLElement | null = null;
   /** Phase 4 · M5: floor chip under the minimap (floor, theme, objective). */
   setTower(m: { floor: number; name: string; objective: string; seal: boolean; order: number[] | null; lit: number[] } | null) {

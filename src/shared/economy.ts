@@ -86,6 +86,9 @@ const TB: [string, string, string, ItemDef['slot'], Partial<ItemDef>, string][] 
   ['seraphine_feather', "Seraphine's Feather", 'The Last Light of a Fallen Star', 'helmet', { def: 34, mag: 30, hp: 140 }, 'Floor 90. It falls upward if you let it go.'],
   ['ascalon_heart', 'Heart of Ascalon', 'The Hundredth Sky', 'armor', { def: 48, atk: 30, mag: 30, hp: 260, mp: 120 }, 'Floor 100. The sky has a heart, and now it is yours.'],
 ];
+reg({ id: 'worldbreaker_sigil', name: 'Worldbreaker Sigil', title: 'Proof of a fallen titan', slot: 'ring', rarity: 'mythical', atk: 14, mag: 14, hp: 60, lore: 'Cut from a world boss by everyone who stood their ground.', value: 1800 });
+reg({ id: 'eclipse_scale', name: 'Eclipse Scale Mantle', title: "Kaelthar's last light", slot: 'armor', rarity: 'mythical', def: 34, hp: 160, mag: 12, atk: 12, lore: 'Warm on one side, cold on the other.', value: 2600 });
+Object.assign(BOSS_MYTHIC, { rb_kaelthar: 'eclipse_scale', wb_gorrath: 'worldbreaker_sigil', wb_vyrnax: 'worldbreaker_sigil', wb_mother: 'worldbreaker_sigil' });
 TB.forEach(([id, name, title, slot, st, lore], k) => reg({ id, name, title, slot, rarity: k === 9 ? 'divine' : 'mythical', ...st, lore, value: 1200 + k * 400 }));
 
 reg({ id: 'gravelords_cleaver', name: "Grave Lord's Cleaver", title: 'It remembers every neck', slot: 'weapon', family: 'sword', rarity: 'mythical', atk: 20, hp: 20, model: 'iron_sword', element: 'darkness', classes: ['warrior', 'knight'], lore: 'Varkas carried it out of a war nobody won.', value: 900 });

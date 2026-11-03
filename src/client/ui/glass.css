@@ -551,3 +551,53 @@ body.bright .panel, body.bright .inv-box, body.bright .status-win, body.bright .
 @media (max-width: 760px) { .tw-chip { top: 214px; right: 8px; width: 190px; } .tg-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; } .tg-floor { padding: 8px 2px; } .tg-floor b { font-size: 16px; } }
 
 body.in-tower .quests { top: 400px !important; max-height: calc(100vh - 510px) !important; }
+
+/* ---------------- Phase 4 · M6: social panel, party frames, event chip */
+.soc-btn { right: 226px !important; }
+.so-box { width: min(820px, 95vw); max-height: 88vh; overflow: auto; padding: 18px 22px 20px; }
+.so-tabs { justify-content: center; }
+.so-body { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.so-sub { margin: 0; font-size: 13px; line-height: 1.5; color: var(--g-text-2); }
+.so-card { padding: 12px 14px; border-radius: 20px; background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .05)); border: 1px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .28); }
+.so-card h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; letter-spacing: -.005em; display: flex; justify-content: space-between; align-items: center; }
+.so-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.so-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.so-in { flex: 1; min-width: 90px; padding: 9px 14px; border-radius: 999px; color: #fff; font: inherit; font-size: 13px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .2); outline: none; }
+.so-in:focus { border-color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .18); }
+.so-in.tag { flex: 0 0 74px; min-width: 0; text-transform: uppercase; } .so-in.num { flex: 0 0 110px; }
+select.so-in option { color: #222; }
+.so-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
+.so-list.bank { max-height: 150px; margin-top: 8px; }
+.so-mem { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-radius: 14px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .1); }
+.so-mem.dead { opacity: .55; }
+.so-nm { flex: 1; font-size: 13px; font-weight: 600; } .so-nm small { font-weight: 400; color: rgba(255, 255, 255, .7); margin-left: 4px; }
+.so-acts { display: flex; gap: 6px; }
+.so-hp { flex-basis: 100%; height: 6px; border-radius: 99px; background: rgba(0, 0, 0, .22); overflow: hidden; }
+.so-hp i, .pt-hp i, .ev-hp i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #7ee0a0, #b8f5c8); transition: width .3s; }
+.so-hp.big { height: 10px; margin-top: 8px; }
+.so-crown { color: #ffe08a; margin-right: 4px; }
+.so-tag { display: inline-grid; place-items: center; min-width: 30px; padding: 2px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em; background: rgba(255, 255, 255, .22); border: 1px solid rgba(255, 255, 255, .35); }
+.so-tag.big { min-width: 48px; height: 48px; border-radius: 16px; font-size: 16px; }
+.so-ghead { display: flex; align-items: center; gap: 12px; } .so-ghead > div { flex: 1; } .so-ghead b { display: block; font-size: 17px; } .so-ghead small { color: rgba(255, 255, 255, .72); font-size: 12px; }
+.so-gold { color: #ffe7a8; font-weight: 600; }
+.so-dim { color: rgba(255, 255, 255, .6); font-size: 12px; }
+.so-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: rgba(255, 255, 255, .3); } .so-dot.on { background: #7ee0a0; box-shadow: 0 0 6px #7ee0a0; }
+.so-log { max-height: 120px; overflow: auto; font-size: 12px; color: rgba(255, 255, 255, .8); line-height: 1.5; }
+.so-foot { display: flex; justify-content: flex-end; }
+.so-pill { padding: 6px 14px; border-radius: 999px; background: rgba(255, 255, 255, .25); font-size: 12px; font-weight: 600; }
+.so-t { width: 100%; border-collapse: collapse; font-size: 13px; } .so-t th { text-align: left; font-weight: 500; color: rgba(255, 255, 255, .65); padding: 4px 6px; } .so-t td { padding: 6px; border-top: 1px solid rgba(255, 255, 255, .1); }
+.so-invite { flex-direction: column; text-align: center; }
+.pt-frames { position: absolute; left: 20px; top: 112px; z-index: 3; display: flex; flex-direction: column; gap: 6px; width: 200px; }
+.pt-f { padding: 7px 12px 8px; border-radius: 16px; background: var(--g-surface); -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur); border: 1px solid rgba(255, 255, 255, .2); border-top-color: rgba(255, 255, 255, .42); box-shadow: var(--g-shadow-sm); color: #fff; text-shadow: var(--g-tsh); }
+.pt-f.dead { opacity: .5; }
+.pt-n { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; } .pt-n small { font-weight: 500; color: rgba(255, 255, 255, .7); }
+.pt-hp { height: 5px; margin-top: 5px; border-radius: 99px; background: rgba(0, 0, 0, .25); overflow: hidden; }
+.ev-chip { position: absolute; left: 50%; top: 86px; transform: translateX(-50%); z-index: 3; min-width: 280px; max-width: 92vw; padding: 9px 18px 10px; border-radius: 22px; text-align: center;
+  background: radial-gradient(140% 70% at 50% -30%, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0) 60%), var(--g-surface); -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur);
+  border: 1px solid rgba(255, 255, 255, .22); border-top-color: rgba(255, 255, 255, .48); box-shadow: var(--g-shadow-sm), var(--g-hi); color: #fff; text-shadow: var(--g-tsh); }
+.ev-chip b { display: block; font-size: 14px; font-weight: 600; } .ev-chip small { display: block; font-size: 12px; color: rgba(255, 255, 255, .8); margin-top: 2px; }
+.ev-chip .ev-hp { height: 7px; margin-top: 7px; border-radius: 99px; background: rgba(0, 0, 0, .25); overflow: hidden; }
+.ev-chip.raid .ev-hp i, .ev-chip.wb .ev-hp i { background: linear-gradient(90deg, #ff9a6a, #ffd0a0); }
+.ev-chip.arena b { color: #fff; }
+.chat .log .party { color: #a8f0ff; } .chat .log .guild { color: #b8ffc8; }
+@media (max-width: 760px) { .so-cols { grid-template-columns: 1fr; } .pt-frames { top: 74px; left: 8px; width: 150px; } .ev-chip { top: 58px; min-width: 200px; } }
