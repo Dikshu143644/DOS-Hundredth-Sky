@@ -14,6 +14,8 @@ import { C2S, S2C, NetEntity, CharacterSummary, Appearance, SelfState, PROTOCOL_
 import { InputBudget } from '../../shared/netcode';
 import { NPCS, NpcDef, npcByKey } from './npcdefs';
 import { QuestSys } from './questsys';
+import { Market } from './market';
+import { rollDrops } from '../../shared/economy'; // also registers the M4 items
 import { scheduleAt } from '../../shared/npcai';
 import { Selector, Sequence, Cond, Act, BTNode, Status } from './bt';
 import { LlmGate, LlmFn, parseJsonLoose, wholeSentences } from './llm';
@@ -32,7 +34,7 @@ export interface CharRecord {
   shrines?: string[]; bind?: string; visited?: string[];
   origin?: { done: boolean; notes: string[]; pastLife?: string; cheat?: string; affinity?: string; rewindAt?: number };
   fusions?: string[]; advPts?: number; rankProtectUntil?: number; injuries?: Injury[];
-  companion?: string;
+  companion?: string; enchant?: Record<string, number>;
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -103,6 +105,7 @@ export class Game {
   zones!: Zones;
   origin!: Origin;
   quests!: QuestSys;
+  market!: Market;
   onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
@@ -120,6 +123,7 @@ export class Game {
     this.zones = new Zones(this);
     this.origin = new Origin(this);
     this.quests = new QuestSys(this);
+    this.market = new Market(this);
     for (const z of ZONE_IDS) withZone(z, () => buildZone());
     setActiveZone('capital');
     this.zones.spawnAll();
@@ -137,7 +141,7 @@ export class Game {
   }
   disconnect(connId: number) {
     const c = this.conns.get(connId);
-    if (c?.player) this.removePlayer(c.player);
+    if (c?.player) { this.market.onLeave(c.player); this.removePlayer(c.player); }
     this.conns.delete(connId);
   }
 
@@ -241,6 +245,14 @@ export class Game {
       case 'status': this.origin.sendStatus(p); return;
       case 'leaderboard': this.origin.leaderboard(p); return;
       case 'board': this.quests.sendBoard(p); return;
+      case 'craft': this.market.craft(p, String((m as any).recipe)); return;
+      case 'enchant': this.market.enchant(p, String((m as any).item)); return;
+      case 'salvage': this.market.salvage(p, String((m as any).item)); return;
+      case 'use': this.market.use(p, String((m as any).item), now); return;
+      case 'shop': this.market.openShop(p, String((m as any).npc)); return;
+      case 'buy': this.market.buy(p, String((m as any).npc), String((m as any).item), Number((m as any).n) || 1); return;
+      case 'sell': this.market.sell(p, String((m as any).npc), String((m as any).item), Number((m as any).n) || 1); return;
+      case 'trade': { const t = m as any; if (t.op === 'request') this.market.request(p, this.players.get(Number(t.target))); else if (t.op === 'accept') this.market.accept(p); else if (t.op === 'offer') this.market.offer(p, t.offer); else if (t.op === 'lock') this.market.lock(p); else if (t.op === 'confirm') this.market.confirm(p); else if (t.op === 'cancel') this.market.cancel(p); return; }
       case 'boardTake': this.quests.take(p, String((m as any).id)); return;
       case 'questDrop': this.quests.drop(p, String((m as any).id)); return;
       case 'companion': { const op = (m as any).op; if (op === 'recruit') { const rin = [...this.ents.values()].find((e) => e.type === 'n' && (e as Npc).def.role === 'companion' && e.zone === p.zone && Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z) < 8); if (rin) this.quests.recruit(p, (rin as Npc).def.key); } else if (op === 'dismiss') this.quests.dismiss(p); return; }
@@ -285,6 +297,7 @@ export class Game {
   private command(p: Player, text: string) {
     const [cmd, arg] = text.slice(1).split(/\s+/, 2);
     const sys = (t: string) => p.conn?.send({ type: 'chat', from: 'System', text: t, channel: 'system' });
+    if (cmd === 'trade') { const t = [...this.players.values()].find((x) => x.type === 'p' && x.name.toLowerCase() === (arg ?? '').toLowerCase()); return this.market.request(p, t); }
     if (cmd === 'who') return sys(`${[...this.players.values()].filter((x) => x.type === 'p').length} player(s), ${[...this.players.values()].filter((x) => x.type === 'b').length} adventurer bot(s) in the zone.`);
     if (cmd === 'where') { const poi = poiAt(p.s.x, p.s.z); return sys(`${poi ? poi.name : REGIONS[p.zone as 'capital']?.name} (${p.s.x.toFixed(0)}, ${p.s.z.toFixed(0)})`); }
     if (!this.o.dev) return sys('Commands: /who, /where');
@@ -294,6 +307,8 @@ export class Game {
     if (cmd === 'boss') { const r = REGIONS[p.zone as 'capital']; p.s = newCharState(r.boss.x + 14, r.boss.z + 14, p.s.yaw); p.inputs.length = 0; return; }
     if (cmd === 'tp') { withZone(p.zone, () => { const poi = POIS.find((x) => x.id === arg); if (poi) { p.s = newCharState(poi.x + 2, poi.z + 2, p.s.yaw); p.inputs.length = 0; } }); return; }
     if (cmd === 'goto') { const n = [...this.ents.values()].find((e) => e.type === 'n' && (e as Npc).def.key === arg) as Npc | undefined; if (n) { if (n.zone !== p.zone) this.zones.move(p, n.zone as any, n.s.x + 1.6, n.s.z + 1.6, p.s.yaw, REGIONS[n.zone as 'capital'].name); else withZone(p.zone, () => { p.s = newCharState(n.s.x + 1.6, n.s.z + 1.6, p.s.yaw); p.inputs.length = 0; }); } return; }
+    if (cmd === 'give') { const parts = text.slice(1).split(/\s+/); const n = Number(parts[parts.length - 1]); const id = (Number.isFinite(n) ? parts.slice(1, -1) : parts.slice(1)).join(' '); if (ITEMS[id]) { p.char.inventory = addItem(p.char.inventory, id, Number.isFinite(n) ? n : 1); p.conn?.send({ type: 'inv', inventory: p.char.inventory, gold: p.char.gold, enchant: p.char.enchant ?? {}, equipment: (p.char.equipment ?? {}) as Record<string, string> } as any); } else sys('No item ' + id); return; }
+    if (cmd === 'gold') { p.char.gold += Number(arg) || 1000; p.conn?.send({ type: 'inv', inventory: p.char.inventory, gold: p.char.gold, enchant: p.char.enchant ?? {}, equipment: (p.char.equipment ?? {}) as Record<string, string> } as any); return; }
     if (cmd === 'xp') { this.giveXp(p, Number(arg) || 100); return; }
     sys('Dev commands: /time H, /weather clear|rain|storm|fog|snow|blizzard|sandstorm|ash, /zone id, /boss, /tp poi, /xp N, /who, /where');
   }
@@ -301,7 +316,7 @@ export class Game {
   /** Class/level stats plus equipped item bonuses (the server is the only place this is computed). */
   statsOf(ch: CharRecord): Stats {
     const st = statsFor(ch.cls, ch.level, ch.attrs ?? {}, ch.adv);
-    const b = equipBonus(ch.equipment ?? {});
+    const b = equipBonus(ch.equipment ?? {}, ch.enchant ?? {});
     // reincarnation: unique skill, affinity cost (Forbidden) and lasting injuries
     return applyOrigin({ ...st, atk: st.atk + b.atk, mag: st.mag + b.mag, def: st.def + b.def, maxHp: st.maxHp + b.hp, maxMp: st.maxMp + b.mp }, { cheat: ch.origin?.cheat, affinity: ch.origin?.affinity, injuries: ch.injuries }, Date.now());
   }
@@ -343,6 +358,7 @@ export class Game {
       queueMicrotask(() => this.zones.sendMap(p));
       conn!.send({ type: 'joined', prologue: !bot && this.origin.needsPrologue(ch), id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
       conn!.send(this.quests.aiStatus());
+      setTimeout(() => { conn!.send(this.quests.aiStatus()); conn!.send({ type: 'inv', inventory: ch.inventory, gold: ch.gold, enchant: ch.enchant ?? {}, equipment: (ch.equipment ?? {}) as Record<string, string> }); }, 2500); // again once the client has built its HUD
       if (!(p as any).hidden) this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
       this.progress.send(p);
       this.progress.award(p, 'newcomer');
@@ -892,7 +908,13 @@ export class Game {
         const missing = LEGENDARY_IDS.filter((id) => !p.char.inventory.some((e) => e.item === id));
         if (missing.length) { const id = missing[Math.floor(this.rnd() * missing.length)]; p.char.inventory = addItem(p.char.inventory, id); loot.push({ item: id, rarity: rarityOf(ITEMS[id].rarity).name }); this.worldEvent(`${p.name} found the legendary ${ITEMS[id].name}`); }
       }
+      // M4 loot tables: region materials, generated gear by tier, stones, potions, boss mythicals
+      for (const d of rollDrops({ kind: m.def.kind, level: m.def.level ?? 2, boss: !!m.def.boss, region: (m.def as any).region ?? m.zone }, () => this.rnd())) {
+        p.char.inventory = addItem(p.char.inventory, d.item, d.n ?? 1); loot.push({ item: d.item, rarity: d.rarity });
+        if (d.rarity === 'Mythical') this.broadcastAll({ type: 'chat', from: 'World', text: `${p.name} claimed the mythical ${ITEMS[d.item]?.name} from ${m.def.name}!`, channel: 'world' });
+      }
       p.conn?.send({ type: 'loot', items: loot, gold });
+      p.conn?.send({ type: 'inv', inventory: p.char.inventory, gold: p.char.gold, enchant: p.char.enchant ?? {}, equipment: (p.char.equipment ?? {}) as Record<string, string> } as any);
       if (loot.length) this.broadcastNear(m.s.x, m.s.z, 120, { type: 'fx', kind: 'loot', x: m.s.x, y: m.s.y, z: m.s.z, text: loot.map((l) => l.rarity).join(',') });
     }
   }

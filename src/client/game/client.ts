@@ -22,6 +22,8 @@ import { worldMap, type MapState } from '../ui/travel';
 import { REGIONS } from '../../shared/regions';
 import { NPCS } from '../../server/core/npcdefs';
 import { openBoard, type BoardUi } from '../ui/questboard';
+import { shopWindow, forgeWindow, tradeWindow, tradeInvite, type ShopUi, type ForgeUi, type TradeUi } from '../ui/market';
+import '../../shared/economy';
 import type { ProgressView } from '../../shared/protocol';
 import { heightAt, WATER_LEVEL } from '../../shared/world';
 
@@ -115,6 +117,12 @@ export class GameClient {
         break;
       case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source, m.actionText); break;
       case 'board': this.boardUi?.update(m); break;
+      case 'inv': this.hud.setInventory(m.inventory); this.gold = m.gold; this.enchant = m.enchant; this.equipment = m.equipment; this.inv?.update(m.inventory, m.equipment, m.enchant, m.gold); this.forgeUi?.update(m.inventory, m.gold, m.enchant, m.equipment); break;
+      case 'shop': if (!this.shopUi) this.shopUi = shopWindow({ buy: (npc, item, n) => this.net.send({ type: 'buy', npc, item, n }), sell: (npc, item, n) => this.net.send({ type: 'sell', npc, item, n }), onClose: () => { this.shopUi = null; } }); this.shopUi.update(m, this.hud.inventory, this.gold, this.equipment); break;
+      case 'trade': if (!m.state) { this.tradeUi?.close(); this.tradeUi = null; if (m.msg) this.hud.notice(m.msg, 'info'); break; }
+        if (!this.tradeUi) { document.exitPointerLock?.(); this.tradeUi = tradeWindow({ offer: (items, gold) => this.net.send({ type: 'trade', op: 'offer', offer: { items, gold } }), lock: () => this.net.send({ type: 'trade', op: 'lock' }), confirm: () => this.net.send({ type: 'trade', op: 'confirm' }), cancel: () => this.net.send({ type: 'trade', op: 'cancel' }), onClose: () => { this.tradeUi = null; } }); }
+        this.tradeUi.update(m.state, this.hud.inventory, this.gold); break;
+      case 'tradeInvite': tradeInvite(m.from, () => this.net.send({ type: 'trade', op: 'accept' }), () => this.net.send({ type: 'trade', op: 'cancel' })); break;
       case 'ai': this.hud.setAi(m); this.aiStatus = m.status; break;
       case 'companion': this.hud.setCompanion(m); break;
       case 'questList' as any: for (const q of (m as any).quests) this.hud.setQuest(q, false); this.hud.pruneQuests((m as any).quests.map((q: any) => q.id)); break;
@@ -133,6 +141,7 @@ export class GameClient {
   private onSnap(m: Extract<S2C, { type: 'snap' }>) {
     if (this.loadingZone) return;
     this.self = m.self;
+    if (typeof m.self.gold === 'number') this.gold = m.self.gold;
     this.engine.hours = m.worldTime;
     this.engine.weather = m.weather;
     if (this.dead && m.self.hp > 0) { this.dead = false; this.hud.hideDeath(); this.me = newCharState(m.me.x, m.me.z, m.me.yaw); this.pending.list.length = 0; }
@@ -291,6 +300,7 @@ export class GameClient {
       onUnequip: (slot) => this.net.send({ type: 'unequip', slot }),
       onArmory: (id) => (window as any).__dos?.openArmory?.(id),
       onClose: () => { this.inv = null; },
+      enchant: this.enchant, gold: this.gold, onUse: (id) => this.net.send({ type: 'use', item: id }), onForge: () => this.openForge(),
     });
   }
 
@@ -313,6 +323,7 @@ export class GameClient {
     if (a === 'target') return this.cycleTarget();
     if (a === 'interact') return this.interact();
     if (a === 'board') return this.openBoard();
+    if (a === 'forge') return this.openForge();
     if (a === 'attack') {
       if (this.casting) return;
       const t = this.targetId ? this.remotes.get(this.targetId) : undefined;
@@ -488,6 +499,13 @@ export class GameClient {
   /** NPCs, and your own companion, can be talked to. */
   talkable(r: Remote) { return r.t === 'n' || (r.t === 's' && !!NPCS.find((n) => n.key === r.key && n.role === 'companion')); }
   boardUi: BoardUi | null = null; aiStatus = 'offline';
+  shopUi: ShopUi | null = null; forgeUi: ForgeUi | null = null; tradeUi: TradeUi | null = null; gold = 0; enchant: Record<string, number> = {};
+  openShop(npc: string) { document.exitPointerLock?.(); this.net.send({ type: 'shop', npc }); }
+  openForge() {
+    if (this.forgeUi) { this.forgeUi.close(); return; }
+    document.exitPointerLock?.();
+    this.forgeUi = forgeWindow({ level: this.hud.level ?? 1, inv: this.hud.inventory, gold: this.gold, ench: this.enchant, eq: this.equipment, craft: (id) => this.net.send({ type: 'craft', recipe: id }), enchant: (id) => this.net.send({ type: 'enchant', item: id }), salvage: (id) => this.net.send({ type: 'salvage', item: id }), onClose: () => { this.forgeUi = null; } });
+  }
   openBoard() {
     if (this.boardUi) { this.boardUi.close(); return; }
     this.boardUi = openBoard({ take: (id) => this.net.send({ type: 'boardTake', id }), close: () => { this.boardUi = null; } });
