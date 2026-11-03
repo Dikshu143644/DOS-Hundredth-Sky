@@ -277,3 +277,49 @@ input[type=range] { accent-color: var(--g-accent) !important; }
 .lucide { display: block; }
 .tm-item .dia { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: rgba(255,255,255,.14); font-style: normal; }
 .tm-item.on .dia { background: #fff; color: #111 !important; }
+
+/* ------------------------------------------------------------ M3: quest board, companion frame, AI pill */
+.qb-box { width: min(720px, 96vw); max-height: 88vh; display: flex; flex-direction: column; padding: 18px 20px !important; }
+.qb-box .inv-head { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; }
+.qb-box .inv-head .t { display: flex; align-items: center; gap: 10px; flex: 1; }
+.qb-me { font-size: 13px; color: var(--g-text-2); display: flex; align-items: center; gap: 6px; }
+.qb-sub { font-size: 13px; color: var(--g-text-3); margin: 8px 2px 12px; }
+.qb-list { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px; }
+.qb-card { display: grid; grid-template-columns: 52px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; border-radius: var(--g-r-lg); background: var(--g-fill-2); border: 1px solid var(--g-line-2); box-shadow: var(--g-hi); transition: transform .35s var(--g-spring), background .2s; }
+.qb-card:hover { background: var(--g-fill-3); transform: translateY(-1px); }
+.qb-card.locked { opacity: .55; }
+.qb-card.taken { box-shadow: inset 0 0 0 1px rgba(142,125,255,.6), var(--g-hi); }
+.qb-rank { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; font-weight: 700; font-size: 16px; background: rgba(255,255,255,.14); color: #fff; }
+.qb-rank.r-S, .qb-rank.r-SS, .qb-rank.r-SSS { background: linear-gradient(140deg, rgba(255,214,120,.55), rgba(255,140,90,.35)); }
+.qb-rank.r-A, .qb-rank.r-B { background: rgba(142,125,255,.42); }
+.qb-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.qb-main b { font-weight: 600; font-size: 15px; }
+.qb-main small { color: var(--g-text-2); font-size: 13px; }
+.qb-main em { color: #c9c0ff; font-style: normal; font-size: 12px; }
+.qb-tag { font-size: 12px; color: var(--g-text-2); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.qb-tag.lock { color: var(--g-text-3); }
+.qb-wait { color: var(--g-text-3); padding: 20px; text-align: center; }
+.comp { position: absolute; left: 20px; top: 112px; width: 210px; padding: 8px 12px !important; border-radius: var(--g-r-md) !important; }
+.comp .cn { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.comp .bar2 { height: 6px; }
+.comp .cs { color: var(--g-text-3); font-size: 11px; }
+.ai-pill { position: absolute; right: 18px; top: 62px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff;
+  background: var(--g-fill); -webkit-backdrop-filter: var(--g-blur-sm); backdrop-filter: var(--g-blur-sm); border: 1px solid var(--g-line); box-shadow: var(--g-shadow-sm); cursor: pointer; }
+.ai-pill i { width: 8px; height: 8px; border-radius: 50%; background: #888; }
+.ai-pill.online i { background: var(--g-ok); box-shadow: 0 0 8px var(--g-ok); }
+.ai-pill.degraded i { background: var(--g-warn); box-shadow: 0 0 8px var(--g-warn); }
+.minimap { top: 96px !important; }
+.mmlabel { top: 292px !important; }
+.dialog .ai b { padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.14); font-size: 11px; margin-right: 4px; }
+.dialog .ai b.on { background: rgba(95,227,161,.3); }
+.dialog .ai em { color: #c9c0ff; font-style: normal; }
+.dialog .opts .board-open { background: var(--g-accent) !important; }
+@media (max-width: 760px) {
+  .comp { top: 96px; left: 8px; width: 160px; }
+  .ai-pill { top: 40px; right: 8px; }
+  .minimap { top: 70px !important; }
+  .mmlabel { top: 196px !important; }
+  .qb-card { grid-template-columns: 42px 1fr; } .qb-act { grid-column: 2; } .qb-rank { width: 40px; height: 40px; }
+}
+.quests { top: 322px !important; max-height: calc(100vh - 430px) !important; }
+@media (max-width: 760px) { .fps { display: none !important; } .comp { top: 104px; } }

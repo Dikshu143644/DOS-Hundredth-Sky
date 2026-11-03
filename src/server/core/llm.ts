@@ -22,7 +22,7 @@ export class TokenBucket {
 export class LlmGate {
   private global: TokenBucket;
   private per = new Map<string, TokenBucket>();
-  calls = 0; failures = 0; limited = 0; cached = 0;
+  calls = 0; failures = 0; limited = 0; cached = 0; lastOkAt = 0; lastFailAt = 0;
   private cache = new Map<string, { v: string; at: number }>();
   constructor(public fn: LlmFn | null, private now: () => number, perMinuteGlobal = 40, private perMinuteUser = 8) {
     this.global = new TokenBucket(perMinuteGlobal / 4, perMinuteGlobal / 60, now());
@@ -41,11 +41,11 @@ export class LlmGate {
     this.calls++;
     try {
       const r = await Promise.race([this.fn(messages, opts), new Promise<null>((res) => setTimeout(() => res(null), 9000))]);
-      if (!r) this.failures++;
-      else { this.cache.set(ck, { v: r, at: t }); if (this.cache.size > 300) this.cache.delete(this.cache.keys().next().value!); }
+      if (!r) { this.failures++; this.lastFailAt = this.now(); }
+      else { this.lastOkAt = this.now(); this.cache.set(ck, { v: r, at: t }); if (this.cache.size > 300) this.cache.delete(this.cache.keys().next().value!); }
       return r;
     } catch {
-      this.failures++;
+      this.failures++; this.lastFailAt = this.now();
       return null;
     }
   }

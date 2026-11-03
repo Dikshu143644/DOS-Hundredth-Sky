@@ -9,11 +9,12 @@ import { LlmGate, parseJsonLoose } from './llm';
  *  deeds) trigger generation; the LLM writes the chain from live world state, constrained to
  *  targets that actually exist; a seeded procedural writer is the fallback so it never breaks. */
 
-export type StepType = 'kill' | 'visit' | 'talk' | 'cast' | 'collect' | 'night';
+export type StepType = 'kill' | 'visit' | 'talk' | 'cast' | 'collect' | 'night' | 'zone';
 export interface QuestStep { type: StepType; target: string; count: number; text: string; poi?: string; progress: number }
 export interface Quest {
   id: string; rank: string; title: string; hook: string; reward: string; steps: QuestStep[]; current: number;
   hidden: boolean; complete: boolean; source: 'llm' | 'procedural'; spark: string; xp: number;
+  /** Phase 4 · M3 */ kind?: 'story' | 'side' | 'hidden' | 'board' | 'spark'; gold?: number; pts?: number; next?: string; giver?: string; region?: string;
 }
 
 export const RANKS = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS', '???'];
