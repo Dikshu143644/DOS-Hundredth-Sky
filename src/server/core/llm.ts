@@ -22,7 +22,8 @@ export class TokenBucket {
 export class LlmGate {
   private global: TokenBucket;
   private per = new Map<string, TokenBucket>();
-  calls = 0; failures = 0; limited = 0;
+  calls = 0; failures = 0; limited = 0; cached = 0;
+  private cache = new Map<string, { v: string; at: number }>();
   constructor(public fn: LlmFn | null, private now: () => number, perMinuteGlobal = 40, private perMinuteUser = 8) {
     this.global = new TokenBucket(perMinuteGlobal / 4, perMinuteGlobal / 60, now());
   }
@@ -30,6 +31,10 @@ export class LlmGate {
   async ask(user: string, messages: ChatMsg[], opts?: { maxTokens?: number; temperature?: number; json?: boolean }): Promise<string | null> {
     if (!this.fn) return null;
     const t = this.now();
+    // identical prompts (same NPC, same context, same words) within 10 min reuse the reply: free-tier friendly
+    const ck = JSON.stringify(messages).slice(-1200) + '|' + (opts?.maxTokens ?? 0);
+    const hit = this.cache.get(ck);
+    if (hit && t - hit.at < 600) { this.cached++; return hit.v; }
     let b = this.per.get(user);
     if (!b) this.per.set(user, (b = new TokenBucket(3, this.perMinuteUser / 60, t)));
     if (!b.take(t) || !this.global.take(t)) { this.limited++; return null; }
@@ -37,6 +42,7 @@ export class LlmGate {
     try {
       const r = await Promise.race([this.fn(messages, opts), new Promise<null>((res) => setTimeout(() => res(null), 9000))]);
       if (!r) this.failures++;
+      else { this.cache.set(ck, { v: r, at: t }); if (this.cache.size > 300) this.cache.delete(this.cache.keys().next().value!); }
       return r;
     } catch {
       this.failures++;

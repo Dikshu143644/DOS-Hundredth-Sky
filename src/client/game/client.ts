@@ -132,7 +132,10 @@ export class GameClient {
       seen.add(e.id);
       let r = this.remotes.get(e.id);
       if (!r) {
-        if (!e.k) continue; // wait for full info
+        if (!e.k) { // we missed its full description (e.g. snaps that arrived while the world streamed in): ask again
+          if (performance.now() - this.lastResync > 1000) { this.lastResync = performance.now(); this.net.send({ type: 'resync' }); }
+          continue;
+        }
         const view = new CharacterView(e.t, e.k, e.ap);
         this.engine.scene.add(view.root);
         const plate = this.hud.makePlate(e);
@@ -310,6 +313,7 @@ export class GameClient {
   }
   progress: ProgressView | null = null;
   heroUi: ReturnType<typeof heroPanel> | null = null;
+  lastResync = 0;
   dodgeQueued = false;
   parryCdLocal = 0;
   openHero() {
@@ -451,7 +455,9 @@ export class GameClient {
       r.lastPos.copy(r.view.root.position);
       const a = r.ent.hp <= 0 ? 'death' : r.ent.a;
       const vis = r.view.root.position.distanceTo(this.renderPos) < 120;
-      r.view.root.visible = vis;
+      // never let a body sit in front of the lens: hide anything (but the boss) closer to the camera than the hero is
+      const camD = r.view.root.position.distanceTo(this.engine.camera.position);
+      r.view.root.visible = vis && !(camD < 2.6 && camD < this.engine.camera.position.distanceTo(this.renderPos) - 0.5 && !r.ent.bs);
       if (vis) r.view.update(dt, a === 'talk' ? 'interact' : a, r.speed);
       if (r.ent.c && r.t !== 'm') { /* remote casting handled by fx */ }
     }

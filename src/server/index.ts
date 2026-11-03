@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Game, SaveData, Hasher } from './core/game';
 import type { LlmFn } from './core/llm';
+import { loadLlmConfig, makeLlm, type LlmStatus } from './llmclient';
 import type { C2S } from '../shared/protocol';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,21 +40,12 @@ const store = {
   save(d: SaveData) { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(d)); fs.renameSync(tmp, DATA_FILE); },
 };
 
-// Any OpenAI-compatible chat endpoint. Configure with env; without it NPCs/Director use their fallbacks.
-const LLM_URL = process.env.DOS_LLM_BASE_URL;
-const LLM_KEY = process.env.DOS_LLM_KEY;
-const LLM_MODEL = process.env.DOS_LLM_MODEL || 'gpt-4o-mini';
-const llm: LlmFn | null = LLM_URL && LLM_KEY ? async (messages, opts) => {
-  const r = await fetch(LLM_URL.replace(/\/$/, '') + '/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${LLM_KEY}` },
-    body: JSON.stringify({ model: LLM_MODEL, messages, max_tokens: opts?.maxTokens ?? 400, temperature: opts?.temperature ?? 0.8 }),
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!r.ok) return null;
-  const j: any = await r.json();
-  return j?.choices?.[0]?.message?.content ?? null;
-} : null;
+// Any OpenAI-compatible chat endpoint (live: Gemini). Env or a server-side secret file; without it
+// NPCs and the Story Director use their scripted fallbacks.
+const llmCfg = loadLlmConfig(path.join(here, 'llm.secret.json'));
+const llmStatus: LlmStatus = { model: null, lastOkAt: 0, lastError: null, retries: 0, fallbacks: 0 };
+const llm: LlmFn | null = llmCfg ? makeLlm(llmCfg, llmStatus) : null;
+const LLM_MODEL = llmCfg ? llmCfg.models.join(' > ') : 'off';
 
 const game = new Game({
   store, hasher, llm, now: () => performance.now() / 1000, mode: 'online', bots: Number(process.env.DOS_BOTS ?? 3),
@@ -66,7 +58,7 @@ process.on('SIGINT', () => { game.flush(); process.exit(0); });
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.webp': 'image/webp', '.hdr': 'application/octet-stream' };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://x');
-  if (url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, ...game.stats() })); return; }
+  if (url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); const s = game.stats(); res.end(JSON.stringify({ ok: true, ...s, llm: { ...s.llm, models: llmCfg?.models ?? [], lastModel: llmStatus.model, lastOkAgoS: llmStatus.lastOkAt ? Math.round((Date.now() - llmStatus.lastOkAt) / 1000) : null, lastError: llmStatus.lastError, retries: llmStatus.retries, fallbacks: llmStatus.fallbacks } })); return; }
   let p = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
   if (p.includes('..')) { res.writeHead(400); res.end(); return; }
   let f = path.join(STATIC_DIR, p || 'index.html');

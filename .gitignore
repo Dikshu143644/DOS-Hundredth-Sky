@@ -10,3 +10,5 @@ test-results/
 /frames/
 .DS_Store
 *.tmp.ts
+llm.secret.json
+*.secret.json

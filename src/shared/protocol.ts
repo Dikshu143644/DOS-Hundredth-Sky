@@ -37,6 +37,7 @@ export type C2S =
   | { type: 'join'; charId: string }
   | { type: 'input'; seq: number; mx: number; mz: number; yaw: number; jump: boolean; sprint: boolean; walk: boolean; dt: number; dodge?: boolean }
   | { type: 'parry' }
+  | { type: 'resync' }
   | { type: 'allocStat'; attr: string; n?: number }
   | { type: 'resetStats' }
   | { type: 'rankSkill'; skill: string }
