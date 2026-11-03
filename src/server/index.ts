@@ -44,7 +44,7 @@ const store = {
 // NPCs and the Story Director use their scripted fallbacks.
 const llmCfg = loadLlmConfig(path.join(here, 'llm.secret.json'));
 const llmStatus: LlmStatus = { model: null, lastOkAt: 0, lastError: null, retries: 0, fallbacks: 0 };
-const llm: LlmFn | null = llmCfg ? makeLlm(llmCfg, llmStatus) : null;
+const llm: LlmFn | null = llmCfg ? makeLlm(llmCfg, llmStatus, fetch, { budgetMs: Number(process.env.DOS_LLM_BUDGET_MS ?? 24_000) }) : null;
 const LLM_MODEL = llmCfg ? llmCfg.models.join(' > ') : 'off';
 
 const game = new Game({
@@ -58,7 +58,12 @@ process.on('SIGINT', () => { game.flush(); process.exit(0); });
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.webp': 'image/webp', '.hdr': 'application/octet-stream' };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://x');
-  if (url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); const s = game.stats(); res.end(JSON.stringify({ ok: true, ...s, llm: { ...s.llm, models: llmCfg?.models ?? [], lastModel: llmStatus.model, lastOkAgoS: llmStatus.lastOkAt ? Math.round((Date.now() - llmStatus.lastOkAt) / 1000) : null, lastError: llmStatus.lastError, retries: llmStatus.retries, fallbacks: llmStatus.fallbacks } })); return; }
+  if (url.pathname === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); const s = game.stats();
+    const perModel = Object.fromEntries(Object.entries(llmStatus.perModel ?? {}).map(([m, v]) => [m, { ok: v.ok, fail: v.fail, r429: v.r429, timeouts: v.timeouts, lostRace: v.lost, firstTokenMs: v.firstTokenMs, lastMs: v.lastMs, restingS: Math.max(0, Math.round((v.restingUntil - Date.now()) / 1000)), lastError: v.lastError }]));
+    res.end(JSON.stringify({ ok: true, ...s, llm: { ...s.llm, models: llmCfg?.models ?? [], lastModel: llmStatus.model, lastOkAgoS: llmStatus.lastOkAt ? Math.round((Date.now() - llmStatus.lastOkAt) / 1000) : null, lastLatencyMs: llmStatus.lastLatencyMs ?? null, lastFirstTokenMs: llmStatus.lastFirstTokenMs ?? null, count429: llmStatus.count429 ?? 0, hedges: llmStatus.hedges ?? 0, lastError: llmStatus.lastError, retries: llmStatus.retries, fallbacks: llmStatus.fallbacks, perModel } }));
+    return;
+  }
   let p = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
   if (p.includes('..')) { res.writeHead(400); res.end(); return; }
   let f = path.join(STATIC_DIR, p || 'index.html');

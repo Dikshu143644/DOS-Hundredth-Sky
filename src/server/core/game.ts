@@ -878,7 +878,7 @@ export class Game {
     if (text) mem.short.push({ who: 'player', text });
     let say = '', mood = 'neutral', source: 'llm' | 'scripted' = 'scripted', action: string | undefined, actionText: string | undefined, valid: boolean | undefined;
     if (def.ai && text) {
-      const r = await this.quests.aiTalk(p, def, mem, text);
+      const r = await this.quests.aiTalk(p, def, mem, text, npcId);
       if (r) { say = r.say; mood = r.mood; source = 'llm'; action = r.action; actionText = r.actionText; valid = r.valid; }
     }
     if (!actionText) actionText = this.quests.scriptedTriggers(p, def, mem, text);
@@ -1097,7 +1097,7 @@ export class Game {
     for (const [k, v] of Object.entries(this.data.sessions)) if (v.exp < t) delete this.data.sessions[k];
     try { this.o.store.save(this.data); } catch (e) { this.o.log?.('save failed', e); }
   }
-  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited, cached: this.llm.cached }, worldTime: this.worldTime, weather: this.weather, anticheat: this.anti.stats, social: { parties: this.social.parties.size, guilds: Object.keys(this.data.guilds ?? {}).length, raids: this.social.raids.size, arenaQueue: this.social.queue.length, worldBoss: this.social.wb.state } }; }
+  stats() { return { players: [...this.players.values()].filter((p) => p.type === 'p').length, bots: [...this.players.values()].filter((p) => p.type === 'b').length, monsters: [...this.ents.values()].filter((e) => e.type === 'm').length, llm: { enabled: this.llm.enabled, calls: this.llm.calls, failures: this.llm.failures, limited: this.llm.limited, cached: this.llm.cached, shared: this.llm.shared, timeoutS: this.llm.timeoutMs / 1000 }, worldTime: this.worldTime, weather: this.weather, anticheat: this.anti.stats, social: { parties: this.social.parties.size, guilds: Object.keys(this.data.guilds ?? {}).length, raids: this.social.raids.size, arenaQueue: this.social.queue.length, worldBoss: this.social.wb.state } }; }
 }
 
 // ------------------------------------------------------------------ helpers

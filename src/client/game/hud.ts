@@ -278,7 +278,13 @@ export class Hud {
     const d = el('div', 'dialog panel', `<span class="crn tr"></span><span class="crn bl"></span><div class="who">${esc(name)}<small>${esc(def?.title ?? '')}</small></div><div class="txt">…</div>
       <div class="opts"></div><div class="row"><input maxlength="160" placeholder="${def?.ai ? 'Say anything — they remember you…' : 'Say something…'}" /><button class="btn" style="min-height:40px;padding:6px 18px">Say</button><button class="btn ghost" style="min-height:40px;padding:6px 14px">✕</button></div>${def?.ai ? '<div class="ai" style="margin-top:8px"></div>' : ''}`);
     const input = d.querySelector('input')!;
-    const send = (t: string) => { if (!t.trim()) return; this.g.net.send({ type: 'talk', npc: npcId, text: t.trim() }); (d.querySelector('.txt') as HTMLElement).textContent = '…'; input.value = ''; };
+    const send = (t: string) => {
+      if (!t.trim()) return; this.g.net.send({ type: 'talk', npc: npcId, text: t.trim() }); input.value = '';
+      const tx = d.querySelector('.txt') as HTMLElement; clearInterval(this.typeIv); this.streamed = '';
+      // in-world "thinking…": the AI can take a few seconds; the words stream in as they are written
+      tx.dataset.done = '0'; tx.innerHTML = `<span class="think"><span class="pro-dots"><i></i><i></i><i></i></span> ${esc(name)} is thinking…</span>`;
+      const ai = d.querySelector('.ai'); if (ai) ai.innerHTML = '<b class="on">AI</b> thinking…';
+    };
     const [say, close] = Array.from(d.querySelectorAll('button')) as HTMLButtonElement[];
     say.onclick = () => send(input.value);
     close.onclick = () => this.closeDialog();
@@ -307,13 +313,24 @@ export class Hud {
     (this.compEl.querySelector('.cs') as HTMLElement).textContent = m.state === 'downed' ? 'down — back in 30 s' : 'following · fights beside you';
     (this.compEl.querySelector('.v') as HTMLElement).style.width = (m.state === 'downed' ? 0 : Math.max(0, Math.min(100, ((m.hp ?? 1) / (m.mhp ?? 1)) * 100))) + '%';
   }
+  private typeIv = 0; private streamed = '';
+  /** Words of an AI reply as they arrive (the server streams the model's output). */
+  npcPartial(npc: number, text: string) {
+    if (!this.dialogEl || this.dialogNpc !== npc || !text) return;
+    const t = this.dialogEl.querySelector('.txt') as HTMLElement;
+    clearInterval(this.typeIv); this.streamed = text; t.textContent = text; t.dataset.done = '0'; t.classList.add('streaming');
+    const ai = this.dialogEl.querySelector('.ai'); if (ai) ai.innerHTML = '<b class="on">AI</b> speaking…';
+  }
   npcSay(npc: number, name: string, text: string, source: string, actionText?: string) {
     if (actionText) this.notice(`${name} ${actionText}`, 'rank');
     if (!this.dialogEl || this.dialogNpc !== npc) { this.chat(name, text, 'npc'); return; }
     const t = this.dialogEl.querySelector('.txt') as HTMLElement;
-    t.textContent = '';
-    let i = 0;
-    const iv = setInterval(() => { t.textContent = text.slice(0, (i += 2)); if (i >= text.length) clearInterval(iv); }, 16);
+    t.classList.remove('streaming');
+    const st = this.streamed.trim(); this.streamed = '';
+    let i = st && text.startsWith(st.slice(0, Math.max(0, st.length - 1))) ? st.length : 0;
+    t.textContent = text.slice(0, i);
+    clearInterval(this.typeIv);
+    const iv = this.typeIv = window.setInterval(() => { t.textContent = text.slice(0, (i += 2)); if (i >= text.length) clearInterval(iv); }, 16);
     t.dataset.done = '0'; setTimeout(() => { t.dataset.done = '1'; }, 16 * (text.length / 2 + 2));
     const ai = this.dialogEl.querySelector('.ai'); if (ai) ai.innerHTML = (source === 'llm' ? '<b class="on">AI</b> remembers you' : '<b>scripted</b> AI resting') + (actionText ? ` · <em>${esc(actionText)}</em>` : '');
     this.chat(name, text, 'npc');

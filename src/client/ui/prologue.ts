@@ -14,7 +14,7 @@ const PAST_LIVES = ['An office worker who never went home on time', 'A student b
 /** The Goddess dialogue: past life → cheat skill (3 offered) → class → affinity (incl. Forbidden) →
  *  status window → AWAKEN. Every answer goes to the server, which keeps it (she remembers) and
  *  answers through the AI with a scripted fallback. Resolves when the soul has woken. */
-export function runGoddess(o: { send: (m: C2S) => void; wait: <T extends S2C['type']>(t: T) => Promise<Extract<S2C, { type: T }>>; scene: Prologue; cls: string; name: string; autoSkip?: boolean }): Promise<void> {
+export function runGoddess(o: { send: (m: C2S) => void; wait: <T extends S2C['type']>(t: T) => Promise<Extract<S2C, { type: T }>>; scene: Prologue; cls: string; name: string; autoSkip?: boolean; listen?: (fn: (m: S2C) => void) => () => void }): Promise<void> {
   return new Promise((resolve) => {
     const d = document.createElement('div'); d.id = 'prologue'; d.className = 'pro-ui';
     d.innerHTML = `<button class="pro-skip" type="button">Skip prologue ›</button>
@@ -25,31 +25,42 @@ export function runGoddess(o: { send: (m: C2S) => void; wait: <T extends S2C['ty
     document.getElementById('ui')!.appendChild(d);
     const text = d.querySelector('.pro-text') as HTMLElement, src = d.querySelector('.pro-src') as HTMLElement, choices = d.querySelector('.pro-choices') as HTMLElement;
     const talk = d.querySelector('.pro-talk') as HTMLFormElement, talkIn = talk.querySelector('input') as HTMLInputElement;
-    let typing = 0, done = false, step = 'start', busy = false;
+    let typing = 0, done = false, step = 'start', busy = false, streamed = '';
+    // her words stream in as the AI writes them (the server forwards the reply as it arrives)
+    const unlisten = o.listen?.((m) => {
+      if (m.type !== 'llmPartial' || m.ctx !== 'prologue' || !busy || !m.text) return;
+      clearInterval(typing); streamed = m.text; text.classList.remove('thinking'); text.classList.add('streaming');
+      text.textContent = m.text; text.dataset.done = ''; text.scrollTop = text.scrollHeight;
+      src.textContent = 'AI · speaking'; src.className = 'pro-src llm';
+    });
     const say = (m: ProMsg) => {
       src.textContent = m.source === 'llm' ? 'AI · remembers you' : 'scripted';
       src.className = 'pro-src ' + m.source;
-      clearInterval(typing); text.textContent = ''; text.dataset.done = ''; let i = 0;
+      text.classList.remove('thinking', 'streaming');
       const full = m.say;
+      // already streamed? carry on from what is on screen instead of retyping it
+      let i = streamed && full.startsWith(streamed.trim().slice(0, Math.max(0, streamed.trim().length - 1))) ? Math.min(full.length, streamed.trim().length) : 0;
+      streamed = '';
+      clearInterval(typing); text.textContent = full.slice(0, i); text.dataset.done = '';
       const end = () => { clearInterval(typing); text.textContent = full; text.dataset.done = '1'; text.scrollTop = text.scrollHeight; };
       typing = window.setInterval(() => { text.textContent = full.slice(0, ++i); text.scrollTop = text.scrollHeight; if (i >= full.length) end(); }, 20);
       text.onclick = end;
       audio.goddess();
     };
-    const thinking = () => { clearInterval(typing); text.dataset.done = ''; text.innerHTML = '<span class="pro-dots"><i></i><i></i><i></i></span>'; };
+    const thinking = () => { clearInterval(typing); streamed = ''; text.dataset.done = ''; text.classList.add('thinking'); text.innerHTML = '<span class="pro-dots"><i></i><i></i><i></i></span><span class="pro-think">Aurelia is listening to your soul…</span>'; src.textContent = 'thinking…'; src.className = 'pro-src wait'; };
     const ask = async (m: C2S): Promise<ProMsg> => { busy = true; thinking(); const p = o.wait('prologue'); o.send(m); const r = await p; busy = false; say(r); return r; };
     const finish = async () => {
       if (done) return; done = true;
       choices.innerHTML = ''; talk.style.display = 'none';
       await new Promise((r) => setTimeout(r, Math.min(5000, 1200 + text.textContent!.length * 25)));
       await o.scene.ascend();
-      d.remove(); resolve();
+      d.remove(); unlisten?.(); resolve();
     };
     const skip = async () => {
       if (done) return;
       done = true; choices.innerHTML = '';
       const p = o.wait('status'); o.send({ type: 'prologue', step: 'skip' }); await p;
-      d.remove(); resolve();
+      d.remove(); unlisten?.(); resolve();
     };
     (d.querySelector('.pro-skip') as HTMLElement).onclick = () => void skip();
     talk.onsubmit = async (e) => { e.preventDefault(); const t = talkIn.value.trim(); if (!t || busy || done) return; talkIn.value = ''; await ask({ type: 'prologue', step: 'talk', text: t }); };

@@ -121,6 +121,7 @@ export class GameClient {
         if (!m.ok && m.error) this.hud.notice(m.error, 'warn');
         break;
       case 'npcSay': this.hud.npcSay(m.npc, m.name, m.text, m.source, m.actionText); break;
+      case 'llmPartial': if (m.ctx === 'npc' && m.npc != null) this.hud.npcPartial(m.npc, m.text); break;
       case 'board': this.boardUi?.update(m); break;
       case 'inv': this.hud.setInventory(m.inventory); this.gold = m.gold; this.enchant = m.enchant; this.equipment = m.equipment; this.inv?.update(m.inventory, m.equipment, m.enchant, m.gold); this.forgeUi?.update(m.inventory, m.gold, m.enchant, m.equipment); break;
       case 'shop': if (!this.shopUi) this.shopUi = shopWindow({ buy: (npc, item, n) => this.net.send({ type: 'buy', npc, item, n }), sell: (npc, item, n) => this.net.send({ type: 'sell', npc, item, n }), onClose: () => { this.shopUi = null; } }); this.shopUi.update(m, this.hud.inventory, this.gold, this.equipment); break;

@@ -63,7 +63,7 @@ describe('server-side anti-speedhack', () => {
 describe('LLM gate and Story Director', () => {
   it('rate limits per user and returns null without a model', async () => {
     let t = 0;
-    const gate = new LlmGate(async () => 'ok', () => t, 40, 8);
+    const gate = new LlmGate(async () => 'ok', () => t, 40, 8, 25_000, 3);
     const r: (string | null)[] = [];
     for (let i = 0; i < 6; i++) r.push(await gate.ask('u', [{ role: 'user', content: 'hi ' + i }]));
     expect(r.filter(Boolean).length).toBe(3);

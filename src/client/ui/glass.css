@@ -622,3 +622,10 @@ body.boss-on .ev-chip { top: 92px !important; }
 @media (max-width: 700px) { .boss-bar { top: 8px; width: 72vw; padding: 6px 10px 8px; } .boss-bar .bn { font-size: 13px; } }
 .mmlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.in-tower .mmlabel { display: none !important; }
+
+/* AI replies: in-world "thinking…" while the model writes, then the words stream in */
+.pro-think, .dialog .txt .think { margin-left: 4px; color: rgba(255,255,255,.62); font-style: italic; letter-spacing: .01em; animation: breathe 1.6s ease-in-out infinite; }
+.dialog .txt .think .pro-dots i { width: 6px; height: 6px; background: rgba(255,255,255,.85); }
+.pro-text .pro-dots i { background: rgba(255,255,255,.9); }
+.pro-text.streaming::after, .dialog .txt.streaming::after { content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -2px; background: rgba(255,255,255,.8); animation: breathe .9s steps(2) infinite; }
+.pro-src.wait { color: rgba(255,255,255,.6); }
