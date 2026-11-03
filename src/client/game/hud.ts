@@ -333,7 +333,7 @@ export class Hud {
     for (const c2 of buildZone().colliders) if (c2.kind === 'box' && (c2.tag === 'wall' || c2.tag === 'building' || c2.tag === 'tower')) { const [a, b] = P(c2.x - c2.hx, c2.z - c2.hz); g.fillRect(a, b, c2.hx * 2 * S, c2.hz * 2 * S); }
     g.fillStyle = 'rgba(30,60,30,.5)';
     for (const t of buildZone().trees) { const [a, b] = P(t.x, t.z); g.fillRect(a - 1, b - 1, 2.5, 2.5); }
-    g.font = '600 13px Rajdhani'; g.textAlign = 'center';
+    g.font = '600 12px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif'; g.textAlign = 'center';
     for (const p of POIS) { const [a, b] = P(p.x, p.z); g.fillStyle = '#000'; g.fillText(p.name, a + 1, b + 1); g.fillStyle = '#ffe3a8'; g.fillText(p.name, a, b); }
     void LAKE;
     // fast-travel shrines (blue diamonds) and region gates (gold arches)
@@ -365,7 +365,7 @@ export class Hud {
     g.setTransform(1, 0, 0, 1, 0, 0);
     // tower bearing marker on the rim
     const ang = Math.atan2(TOWER.x - me.x, -(TOWER.z - me.z));
-    g.fillStyle = '#5fe8ff'; g.font = '700 16px Cinzel'; g.textAlign = 'center';
+    g.fillStyle = '#5fe8ff'; g.font = '700 15px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif'; g.textAlign = 'center';
     g.fillText('◆', W / 2 + Math.sin(ang) * (W / 2 - 14), W / 2 - Math.cos(ang) * (W / 2 - 14) + 6);
     g.fillStyle = '#d9b56b'; const na = 0;
     g.fillText('N', W / 2 + Math.sin(na) * (W / 2 - 14), W / 2 - Math.cos(na) * (W / 2 - 14) + 6);

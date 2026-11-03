@@ -55,6 +55,20 @@ export class LlmGate {
 export function parseJsonLoose<T = any>(s: string | null): T | null {
   if (!s) return null;
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
-  if (a < 0 || b <= a) return null;
-  try { return JSON.parse(s.slice(a, b + 1)) as T; } catch { return null; }
+  if (a >= 0 && b > a) { try { return JSON.parse(s.slice(a, b + 1)) as T; } catch { /* fall through */ } }
+  // a reply cut off by the token limit: keep the complete sentences of "say", drop the rest
+  const m = /"say"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(s);
+  if (m) { try { const said = JSON.parse('"' + m[1] + '"') as string; const w = wholeSentences(said, 420, true); if (w) return { say: w } as unknown as T; } catch { /* unusable */ } }
+  return null;
+}
+/** Never show a line that stops mid-word: trim to the last complete sentence (or add an ellipsis).
+ *  `strict` returns '' when no complete sentence exists. */
+export function wholeSentences(s: string, max = 420, strict = false): string {
+  let t = s.replace(/\s+/g, ' ').trim();
+  if (t.length > max) t = t.slice(0, max);
+  if (/[.!?…"”’)]$/.test(t) && t.length <= max) return t;
+  const cut = Math.max(t.lastIndexOf('. '), t.lastIndexOf('! '), t.lastIndexOf('? '), t.lastIndexOf('… '), t.lastIndexOf('." '), t.lastIndexOf('.” '));
+  if (cut > 8) return t.slice(0, cut + 1).trim();
+  if (strict) return '';
+  return t.replace(/[,;:\-–—\s]+$/, '').replace(/\s+\S*$/, '') + '…';
 }

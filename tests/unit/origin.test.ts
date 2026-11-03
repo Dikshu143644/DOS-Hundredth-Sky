@@ -21,7 +21,7 @@ describe('reincarnation prologue', () => {
     const offer: string[] = r[1].offer;
     expect(offer).toHaveLength(3); expect(offer).toEqual(cheatOffer(p.char.id));
     // a cheat that was not offered is refused (server authority)
-    const notOffered = ['great_sage', 'predator', 'mana_overflow', 'return_by_death', 'shadow_monarch', 'sword_saint', 'dragon_heart', 'lucky_star'].find((x) => !offer.includes(x))!;
+    const notOffered = ['sky_oracle', 'devourer', 'endless_well', 'second_dawn', 'eclipse_sovereign', 'thousand_blades', 'wyrmblood', 'fortunes_favor'].find((x) => !offer.includes(x))!;
     c.send({ type: 'prologue', step: 'cheat', value: notOffered });
     expect(p.char.origin!.cheat).toBeUndefined();
     const baseHp = game.statsOf({ ...p.char, cls: 'warrior', origin: undefined } as any).maxHp;
@@ -36,7 +36,7 @@ describe('reincarnation prologue', () => {
     expect((p as any).hidden).toBe(false);
     expect(p.char.titles).toContain('reincarnated');
     // the Forbidden path costs max HP (unless Dragon Heart offsets it)
-    if (offer[0] !== 'dragon_heart') expect(p.stats.maxHp).toBeLessThan(baseHp);
+    if (offer[0] !== 'wyrmblood') expect(p.stats.maxHp).toBeLessThan(baseHp);
     // she remembers
     expect(p.char.origin!.notes.join(' ')).toMatch(/office worker/);
     void watcher;
