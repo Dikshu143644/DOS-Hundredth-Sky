@@ -61,7 +61,10 @@ export type C2S =
   | { type: 'board' }
   | { type: 'boardTake'; id: string }
   | { type: 'questDrop'; id: string }
-  | { type: 'companion'; op: 'recruit' | 'dismiss' | 'stay' | 'follow' };
+  | { type: 'companion'; op: 'recruit' | 'dismiss' | 'stay' | 'follow' }
+  | { type: 'craft'; recipe: string } | { type: 'enchant'; item: string } | { type: 'salvage'; item: string } | { type: 'use'; item: string }
+  | { type: 'shop'; npc: string } | { type: 'buy'; npc: string; item: string; n?: number } | { type: 'sell'; npc: string; item: string; n?: number }
+  | { type: 'trade'; op: 'request' | 'accept' | 'offer' | 'lock' | 'confirm' | 'cancel'; target?: number; offer?: { items: { item: string; n: number }[]; gold: number } };
 
 export interface SelfState { hp: number; mhp: number; mp: number; mmp: number; xp: number; xpNext: number; level: number; cds: Record<string, number>; gold: number;
   /** movement multiplier the server applies (slows, buffs, class speed) so prediction matches */ sm?: number; sf?: string; sh?: number; combo?: number; zone?: string }
@@ -85,6 +88,10 @@ export type S2C =
   | { type: 'npcSay'; npc: number; name: string; text: string; mood?: string; source: 'llm' | 'scripted'; action?: string; actionText?: string; valid?: boolean }
   | { type: 'board'; region: string; rank: string; active: number; max: number; list: BoardEntry[] }
   | { type: 'ai'; status: 'online' | 'degraded' | 'offline'; npcs: number; calls: number; failures: number; detail: string }
+  | { type: 'inv'; inventory: { item: string; rarity: string; n: number }[]; gold: number; enchant: Record<string, number>; equipment: Record<string, string> }
+  | { type: 'shop'; npc: string; name: string; keeper: string; stock: { item: string; price: number }[]; sell: Record<string, number> }
+  | { type: 'trade'; state: TradeView | null; msg?: string }
+  | { type: 'tradeInvite'; from: string; id: number }
   | { type: 'companion'; name: string | null; state: 'following' | 'staying' | 'downed' | 'none'; hp?: number; mhp?: number }
   | { type: 'quest'; quest: QuestView; event: 'discovered' | 'progress' | 'complete' | 'step' }
   | { type: 'notice'; text: string; style?: 'info' | 'rank' | 'levelup' | 'warn' }
@@ -98,6 +105,7 @@ export type S2C =
   | { type: 'kick'; reason: string }
   | { type: 'equipment'; equipment: Record<string, string>; inventory: { item: string; rarity: string; n: number }[]; ok: boolean; error?: string };
 
+export interface TradeView { with: string; mine: { items: { item: string; n: number }[]; gold: number }; theirs: { items: { item: string; n: number }[]; gold: number }; myLock?: boolean; theirLock?: boolean; myConfirm?: boolean; theirConfirm?: boolean }
 export interface BoardEntry { id: string; rank: string; title: string; hook: string; region: string; reward: string; can: boolean; taken: boolean; need?: string }
 export interface QuestStepView { text: string; done: boolean; progress?: string }
 export interface QuestView { id: string; rank: string; title: string; hook: string; steps: QuestStepView[]; current: number; hidden: boolean; complete: boolean; reward: string; source: 'llm' | 'procedural' }

@@ -12,6 +12,8 @@ import { classById } from '../../shared/combat';
 import { parseJsonLoose, wholeSentences } from './llm';
 import type { Summon } from './combat';
 import { withZone } from '../../shared/world';
+import { UNIQUE_REWARD } from '../../shared/economy';
+import { ITEMS, addItem } from '../../shared/items';
 
 export const BOARD_MAX = 3;
 const BOARD_PERIOD_MS = 3 * 3600_000;
@@ -44,6 +46,8 @@ export class QuestSys {
     if (!this.has(p, 'story1')) { p.char.quests.push(fromTemplate(questT('story1')!)); this.g.markDirty(); } // silent: arrives with 'joined'
   }
   onComplete(p: Player, q: Quest) {
+    const uq = UNIQUE_REWARD[q.id];
+    if (uq && !p.char.inventory.some((e) => e.item === uq)) { p.char.inventory = addItem(p.char.inventory, uq); p.conn?.send({ type: 'loot', items: [{ item: uq, rarity: 'Unique' }], gold: 0 }); this.g.broadcastAll({ type: 'chat', from: 'World', text: `${p.name} received the one and only ${ITEMS[uq]?.name}.`, channel: 'world' }); }
     if (q.pts) this.g.origin.addPts(p, q.pts, 'quest');
     if (q.next) { const n = questT(q.next); if (n) { this.give(p, n, 'Main story'); if (n.minLevel && p.char.level < n.minLevel) p.conn?.send({ type: 'notice', text: `Recommended level ${n.minLevel} for ${regionName(n.region)}.`, style: 'info' }); } }
   }

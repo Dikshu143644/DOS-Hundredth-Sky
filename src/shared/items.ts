@@ -73,9 +73,9 @@ export function equip(cls: ClassId, inv: InvEntry[], eq: Equipment, itemId: stri
 }
 export function unequip(eq: Equipment, slot: Slot): Equipment { const n = { ...eq }; delete n[slot]; return n; }
 /** Sum of equipped stat bonuses. */
-export function equipBonus(eq: Equipment): { atk: number; mag: number; def: number; hp: number; mp: number } {
+export function equipBonus(eq: Equipment, ench: Record<string, number> = {}): { atk: number; mag: number; def: number; hp: number; mp: number } {
   const b = { atk: 0, mag: 0, def: 0, hp: 0, mp: 0 };
-  for (const id of Object.values(eq)) { const d = id ? ITEMS[id] : undefined; if (!d) continue; b.atk += d.atk ?? 0; b.mag += d.mag ?? 0; b.def += d.def ?? 0; b.hp += d.hp ?? 0; b.mp += d.mp ?? 0; }
+  for (const id of Object.values(eq)) { const d = id ? ITEMS[id] : undefined; if (!d) continue; const k = 1 + 0.06 * (ench[id!] ?? 0); b.atk += Math.round((d.atk ?? 0) * k); b.mag += Math.round((d.mag ?? 0) * k); b.def += Math.round((d.def ?? 0) * k); b.hp += Math.round((d.hp ?? 0) * k); b.mp += Math.round((d.mp ?? 0) * k); }
   return b;
 }
 export function addItem(inv: InvEntry[], itemId: string, n = 1): InvEntry[] {

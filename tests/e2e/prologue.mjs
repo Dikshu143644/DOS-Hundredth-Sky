@@ -34,7 +34,7 @@ try {
   step('the truck, the white, and the void');
   await page.waitForSelector('#create.over-void', { timeout: 20000 });
   await page.click('#create .classbtn[data-c=mage]');
-  await page.fill('#create [data-name]', 'Haruto' + 'abcdefghij'[Date.now() % 10] + 'klmnopqrst'[Math.floor(Date.now() / 10) % 10]);
+  await page.fill('#create [data-name]', 'Haru' + Array.from({ length: 5 }, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join(''));
   await page.waitForTimeout(2500); await shot('pro_2_soul.jpg');
   await page.click('#create [data-create]');
   // Act II: the Goddess
@@ -64,6 +64,7 @@ try {
   if (st.lvl !== 1 || st.zone !== 'capital') await fail('did not wake in the Capital at Lv 1: ' + JSON.stringify(st));
   if (st.status?.affinity !== 'water' || !st.status?.cheat) await fail('origin missing: ' + JSON.stringify(st.status));
   step(`woke in the Capital at Lv 1 · rank ${st.status.rank} · ${st.status.cheat} · ${st.status.affinity}`);
+  try { await page.waitForSelector('.ai-pill[data-status]', { timeout: 8000 }); step('HUD AI status: ' + (await page.textContent('.ai-pill')).trim() + ' · ' + (await page.textContent('.quests .ql')).slice(0, 60)); } catch { step('HUD AI status pill missing'); }
   await shot('pro_7_capital.jpg');
   // fusion at Lv 5
   await chat('/xp 3000');

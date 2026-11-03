@@ -5,6 +5,8 @@ import { SpellDef, classById } from '../../shared/combat';
 import { skillForSlot, rankScale, SKILLS } from '../../shared/skills';
 import type { ProgressView } from '../../shared/protocol';
 import { NPCS } from '../../server/core/npcdefs';
+import { ITEMS } from '../../shared/items';
+import { SHOPS } from '../../shared/economy';
 import { buildZone, POIS, poiAt, LAKE, ROADS, TOWER, heightAt, REGION, WATER_LEVEL } from '../../shared/world';
 import { settings } from '../settings';
 import { openSettings } from '../ui/settings';
@@ -195,7 +197,7 @@ export class Hud {
   }
   loot(items: { item: string; rarity: string }[], gold: number) {
     for (const it of items) { const ex = this.inventory.find((i) => i.item === it.item); if (ex) ex.n++; else this.inventory.push({ ...it, n: 1 }); }
-    const txt = items.map((i) => `[${i.item}]`).join(' ');
+    const txt = items.map((i) => `[${ITEMS[i.item]?.name ?? i.item}]`).join(' ');
     this.chat('Loot', `You loot ${gold} copper${txt ? ' and ' + txt : ''}.`, 'system');
   }
   setInventory(inv: { item: string; rarity: string; n: number }[]) { this.inventory = inv; }
@@ -283,6 +285,7 @@ export class Hud {
     const opts = d.querySelector('.opts')!;
     const choices = def?.role === 'companion' ? ['Join me — let\'s climb together.', 'How are you holding up?', 'Leave the party for now.'] : def?.role === 'guild' ? ['Register me, please.', 'Any bounties for my rank?', 'Who is Rin?'] : key === 'lyra' ? ['Tell me about the Tower.', 'What do you know about the Shrine?', 'Do you have work for me?'] : key === 'aldric' ? ['What is happening at the Ruins?', 'Do you have work for me?', 'Who are you, really?'] : def?.ai ? ['Who are you?', 'Do you have work for me?', 'Any secrets in this place?'] : ['Hello!', 'Any work for me?'];
     for (const c of choices) { const b = el('button', '', esc(c)); b.onclick = () => send(c); opts.appendChild(b); }
+    if (SHOPS[key]) { const b = el('button', 'board-open', 'Browse goods'); b.onclick = () => { this.closeDialog(); this.g.openShop(key); }; opts.appendChild(b); }
     if (def?.role === 'guild') { const b = el('button', 'board-open', 'Open the quest board'); b.onclick = () => { this.closeDialog(); this.g.action('board'); }; opts.appendChild(b); }
     this.root.appendChild(d);
     this.dialogEl = d;
