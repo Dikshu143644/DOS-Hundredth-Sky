@@ -192,21 +192,40 @@ export function buildWeapon(model: WeaponModel, o: { aura?: boolean; light?: boo
     updaters.push((t) => { blade.emissiveIntensity = 2.7 + 0.7 * (Math.sin(t * 7.3) * 0.5 + Math.sin(t * 13.1) * 0.3 + Math.sin(t * 2.1) * 0.6); });
   } else if (model === 'umbra') {
     glow = new THREE.Color(0.7, 0.25, 1.0);
-    const metal = new THREE.MeshPhysicalMaterial({ color: 0x5a3c86, metalness: 1, roughness: 0.2, clearcoat: 0.8, iridescence: 0.6, emissive: new THREE.Color(0.18, 0.04, 0.32), emissiveIntensity: 0.5 });
+    const metal = new THREE.MeshPhysicalMaterial({ color: 0x5a3c86, metalness: 1, roughness: 0.2, clearcoat: 0.8, iridescence: 0.6, emissive: new THREE.Color(0.18, 0.04, 0.32), emissiveIntensity: 0.22 });
     const edge = new THREE.MeshStandardMaterial({ color: 0x110818, emissive: new THREE.Color(0.85, 0.35, 1.0), emissiveIntensity: 5.5 });
+    // phase 3 (his reference): two curved daggers crossed in an X. Each has a sickle-curved blade
+    // with a glowing violet inner edge, a gold scrolled guard, a wrapped grip and a ring pommel.
+    const gold = M.gold();
     const mkBlade = (side: number) => {
       const B = new THREE.Group();
-      const { shape: sh, tip } = crescentShape(0.40, 0.385, 0.15);
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.012, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.008, bevelSegments: 2, curveSegments: 48 }).translate(0, 0, -0.006);
-      const m = new THREE.Mesh(geo, metal); m.castShadow = true; B.add(m);
-      // glowing cutting edge along the outer arc
-      const arc = new THREE.EllipseCurve(0, 0, 0.405, 0.405, -tip * 0.97, tip * 0.97, false, 0);
-      const pts = arc.getPoints(64).map((p) => new THREE.Vector3(p.x, p.y, 0));
-      B.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.006, 5, false), edge));
-      // rune notches
-      for (let k = 0; k < 5; k++) { const a = -0.5 + k * 0.25; const r = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.026), edge); r.position.set(Math.cos(a) * 0.33, Math.sin(a) * 0.33, 0); r.rotation.z = a; B.add(r); }
-      const g = new THREE.Mesh(grip(0.18, 0.017), M.leather(0x1c1424)); g.rotation.z = Math.PI / 2; g.position.set(0.1, 0, 0); B.add(g);
-      B.rotation.z = Math.PI / 2 + side * 0.55; B.position.set(side * 0.08, 0.45, side * 0.05); B.rotation.x = side * 0.08;
+      // blade outline from a curved spine: wide at the guard, hooking to a needle tip
+      const spine = new THREE.QuadraticBezierCurve(new THREE.Vector2(0, 0), new THREE.Vector2(0.11, 0.26), new THREE.Vector2(-0.06, 0.5));
+      const N = 40, outer: THREE.Vector2[] = [], inner: THREE.Vector2[] = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, p = spine.getPoint(t), tg = spine.getTangent(t), nrm = new THREE.Vector2(tg.y, -tg.x);
+        const wd = 0.05 * Math.pow(1 - t, 0.75) * (1 + 0.25 * Math.sin(t * Math.PI));
+        outer.push(p.clone().addScaledVector(nrm, wd * 0.62)); inner.push(p.clone().addScaledVector(nrm, -wd * 0.38));
+      }
+      const sh = new THREE.Shape([...outer, ...inner.reverse()]);
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.008, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.006, bevelSegments: 2, curveSegments: 8 }).translate(0, 0, -0.004);
+      const m = new THREE.Mesh(geo, metal); m.castShadow = true; m.position.y = 0.06; B.add(m);
+      // glowing cutting edge along the inner (concave) curve
+      const ePts = inner.slice().reverse().map((p) => new THREE.Vector3(p.x, p.y + 0.06, 0));
+      B.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ePts), 48, 0.0045, 5, false), edge));
+      // rune notches down the blade's spine
+      for (let k = 0; k < 4; k++) { const p = spine.getPoint(0.12 + k * 0.17); const r = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.006, 0.02), edge); r.position.set(p.x, p.y + 0.06, 0); B.add(r); }
+      // gold guard with curled ends
+      const gq = new THREE.CatmullRomCurve3([new THREE.Vector3(-0.07, 0.07, 0), new THREE.Vector3(-0.05, 0.045, 0), new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0.05, 0.045, 0), new THREE.Vector3(0.075, 0.075, 0)]);
+      B.add(new THREE.Mesh(new THREE.TubeGeometry(gq, 24, 0.009, 8, false), gold));
+      for (const sx of [-1, 1]) { const c = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.005, 6, 16, Math.PI * 1.4), gold); c.position.set(sx * 0.07, 0.083, 0); c.rotation.z = sx > 0 ? -0.6 : Math.PI + 0.6; B.add(c); }
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.012, 0), edge); gem.position.set(0, 0.05, 0.01); B.add(gem);
+      // wrapped grip + ring pommel
+      const g = new THREE.Mesh(grip(0.13, 0.014), M.leather(0x1c1424)); g.position.y = -0.02; B.add(g);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.006, 8, 24), gold); ring.position.y = -0.1; B.add(ring);
+      B.position.set(side * 0.13, 0.36, side * 0.02);
+      B.scale.setScalar(1.3);
+      B.rotation.z = 0.42; B.rotation.y = side < 0 ? Math.PI : 0;
       return B;
     };
     G.add(mkBlade(1), mkBlade(-1));

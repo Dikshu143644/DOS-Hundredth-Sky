@@ -186,10 +186,10 @@ export class SkyCastle {
     A.uSunDir.value.copy(this.sunDir);
     A.uFogColor.value.setRGB(0.86, 0.66, 0.50);
     A.uSunFogColor.value.setRGB(1.0, 0.62, 0.30);
-    A.uFogDensity.value = 0.00016; A.uFogHeight.value = -60; A.uFogFalloff.value = 0.0022;
+    A.uFogDensity.value = 0.00007; A.uFogHeight.value = -60; A.uFogFalloff.value = 0.0022;
     this.sky = skyDome(this.sunDir);
     const su = (this.sky.material as THREE.ShaderMaterial).uniforms;
-    su.uZen.value.setRGB(0.20, 0.27, 0.46); su.uHor.value.setRGB(1.0, 0.66, 0.38); su.uSunCol.value.setRGB(1.0, 0.68, 0.34);
+    su.uZen.value.setRGB(0.15, 0.29, 0.58); su.uHor.value.setRGB(1.0, 0.66, 0.38); su.uSunCol.value.setRGB(1.0, 0.68, 0.34);
     su.uSeaLo.value.setRGB(0.62, 0.46, 0.46); su.uSeaHi.value.setRGB(1.0, 0.82, 0.62);
     S.add(this.sky);
 
@@ -606,7 +606,7 @@ export class SkyCastle {
 
     // THE HERO: seen from behind at the cliff edge, cream hooded cloak in the wind, facing the castle
     try {
-      const h = await makeHero('Ranger_Male_SimpleParted', { headgear: false, hair: 0x2a2018, tint: 0x8e8270 });
+      const h = await makeHero('Ranger_Male_SimpleParted', { headgear: false, hair: 0x5a4636, tint: 0x8e8270 });
       h.root.traverse((o) => { if (/Hair_Beard|Head_Hood/.test(o.name)) o.visible = false; });
       const ah = 5.2, sd = -0.9;
       const x = cb.x + f.x * ah + r.x * sd, z = cb.z + f.z * ah + r.z * sd;
@@ -616,7 +616,31 @@ export class SkyCastle {
       h.play('idle', 0); h.mixer.update(0.5);
       this.scene.add(h.root);
       h.root.updateMatrixWorld(true);
-      const cl = makeCloak(h.root, { color: 0xd6c4a0, length: 1.3, width: 0.74, litSide: 1 });
+      const cl = makeCloak(h.root, { color: 0xd6c4a0, length: 1.25, width: 0.6, litSide: 1, sweep: -0.55 });
+      // light armour like the reference: layered steel pauldrons with gold edging on both shoulders
+      {
+        const steel = new THREE.MeshPhysicalMaterial({ color: 0xa39a8c, metalness: 0.85, roughness: 0.42, clearcoat: 0.2, envMapIntensity: 0.6 });
+        const gold = new THREE.MeshStandardMaterial({ color: 0xc9a25a, metalness: 1, roughness: 0.3 });
+        const s = h.root.scale.x || 1;
+        for (const side of ['l', 'r'] as const) {
+          let arm: THREE.Object3D | null = null; h.root.traverse((b) => { if (b.name === 'upperarm_' + side) arm = b; });
+          if (!arm) continue;
+          const wp = new THREE.Vector3().setFromMatrixPosition((arm as THREE.Object3D).matrixWorld);
+          const out = new THREE.Vector3().subVectors(wp, new THREE.Vector3().setFromMatrixPosition(h.root.matrixWorld)).setY(0).normalize();
+          const P = new THREE.Group();
+          for (let k = 0; k < 3; k++) {
+            const rr = (0.078 - k * 0.009) * s;
+            const shell = new THREE.Mesh(new THREE.SphereGeometry(rr, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), steel);
+            shell.scale.set(1.05, 0.62, 1.2); shell.position.set(0, -k * 0.034 * s, 0); shell.rotation.z = k * 0.12;
+            const rim = new THREE.Mesh(new THREE.TorusGeometry(rr * Math.sin(Math.PI * 0.42) * 1.04, 0.006 * s, 6, 28), gold);
+            rim.rotation.x = Math.PI / 2; rim.scale.set(1.05, 1.2, 1); rim.position.set(0, shell.position.y + rr * Math.cos(Math.PI * 0.42) * 0.62, 0);
+            shell.castShadow = rim.castShadow = true; P.add(shell, rim);
+          }
+          P.position.copy(wp).addScaledVector(out, 0.03 * s).add(new THREE.Vector3(0, 0.05 * s, 0));
+          P.lookAt(P.position.clone().add(new THREE.Vector3(0, 1, 0)).addScaledVector(out, 0.55)); P.rotateX(Math.PI / 2);
+          this.scene.add(P); (arm as THREE.Object3D).attach(P);
+        }
+      }
       if (cl) { cl.uniforms.uWind.value = 1.25; this.cloak = cl; }
       this.heroes.push(h);
       this.hero = h.root;
@@ -661,10 +685,10 @@ export class SkyCastle {
   /** The sea of clouds under the islands: an fbm cloud deck lit by the low sun (warm tops,
    *  lilac shade), with forward scattering toward the sun and distance haze into the horizon. */
   private buildCloudSea() {
-    const y0 = this.camBase.y - 120;
+    const y0 = this.camBase.y - 240;
     const m = new THREE.ShaderMaterial({
       fog: false, depthWrite: false, transparent: false,
-      uniforms: { uTime: { value: 0 }, uSun: { value: this.sunDir }, uCam: { value: this.camera.position }, uLit: { value: new THREE.Color(1.35, 0.98, 0.70) }, uShade: { value: new THREE.Color(0.46, 0.36, 0.46) }, uHaze: { value: new THREE.Color(1.0, 0.70, 0.46) }, uSunCol: { value: new THREE.Color(1.0, 0.68, 0.36) } },
+      uniforms: { uTime: { value: 0 }, uSun: { value: this.sunDir }, uCam: { value: this.camera.position }, uLit: { value: new THREE.Color(1.35, 0.98, 0.70) }, uShade: { value: new THREE.Color(0.38, 0.30, 0.42) }, uHaze: { value: new THREE.Color(0.98, 0.66, 0.44) }, uSunCol: { value: new THREE.Color(1.0, 0.68, 0.36) } },
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: `
         uniform float uTime; uniform vec3 uSun, uCam, uLit, uShade, uHaze, uSunCol; varying vec3 vW;
@@ -685,7 +709,7 @@ export class SkyCastle {
           float mu = max(dot(v, uSun), 0.0);
           col += uSunCol * (pow(mu, 10.0) * 0.9 + pow(mu, 3.0) * 0.25) * (0.4 + tops);
           float dist = length(vW.xz - uCam.xz);
-          float hz = 1.0 - exp(-dist * 0.00018);
+          float hz = 1.0 - exp(-dist * 0.00007);
           col = mix(col, uHaze + uSunCol * pow(mu, 6.0) * 0.6, clamp(hz, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }`,
@@ -703,12 +727,12 @@ export class SkyCastle {
         const u = x / S - 0.5, v = y / S - 0.5;
         const nn = fbm(u * 6 + 3, v * 6, 1.7, 5);
         const r = Math.hypot(u, v * 1.25) * 2;
-        const a0 = (1 - r) * 1.7 + (nn - 0.5) * 2.2; const a = a0 <= 0 ? 0 : Math.min(1, a0 * a0 * 2.2);
-        const i = (y * S + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 255 * Math.min(1, 0.55 + nn * 0.6); im.data[i + 3] = 255 * Math.pow(a, 1.4);
+        const a0 = (1 - r) * 1.9 + (nn - 0.5) * 2.4; const a = a0 <= 0 ? 0 : Math.min(1, a0 * a0 * 5.0);
+        const i = (y * S + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 255 * Math.min(1, 0.55 + nn * 0.6); im.data[i + 3] = 255 * a;
       }
       g2.putImageData(im, 0, 0);
       const ct = new THREE.CanvasTexture(c); ct.colorSpace = THREE.NoColorSpace;
-      const N = this.quality === 'low' ? 70 : 170;
+      const N = this.quality === 'low' ? 90 : 260;
       const geo = new THREE.InstancedBufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]), 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
@@ -716,16 +740,16 @@ export class SkyCastle {
       const off = new Float32Array(N * 4); const rr = mulberry(311);
       const f = this.fwd, rt = this.right, cb = this.camBase;
       for (let i = 0; i < N; i++) {
-        const d = 140 + Math.pow(rr(), 1.1) * 2600, sd = (rr() - 0.5) * d * 1.6;
+        const d = 220 + Math.pow(rr(), 1.35) * 2400, sd = (rr() - 0.5) * d * 1.7;
         off[i * 4] = cb.x + f.x * d + rt.x * sd; off[i * 4 + 2] = cb.z + f.z * d + rt.z * sd;
-        const size = 120 + rr() * 260 + d * 0.06;
-        off[i * 4 + 1] = y0 + size * 0.18 + rr() * 20; off[i * 4 + 3] = size;
+        const size = 150 + rr() * 300 + d * 0.08;
+        off[i * 4 + 1] = y0 + size * 0.12 + rr() * 30; off[i * 4 + 3] = size;
       }
       geo.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 4));
       geo.instanceCount = N;
       const pm = new THREE.ShaderMaterial({
         transparent: true, depthWrite: false, fog: false,
-        uniforms: { map: { value: ct }, uSun: { value: this.sunDir }, uCam: { value: this.camera.position }, uLit: { value: new THREE.Color(1.5, 1.08, 0.74) }, uShade: { value: new THREE.Color(0.40, 0.30, 0.42) }, uHaze: { value: new THREE.Color(1.0, 0.70, 0.46) }, uSunCol: { value: new THREE.Color(1.0, 0.68, 0.36) } },
+        uniforms: { map: { value: ct }, uSun: { value: this.sunDir }, uCam: { value: this.camera.position }, uLit: { value: new THREE.Color(1.3, 0.92, 0.62) }, uShade: { value: new THREE.Color(0.34, 0.27, 0.38) }, uHaze: { value: new THREE.Color(1.0, 0.70, 0.46) }, uSunCol: { value: new THREE.Color(1.0, 0.68, 0.36) } },
         vertexShader: `attribute vec4 aOff; varying vec2 vUv; varying vec3 vW;
           void main(){ vUv = uv; vec3 c = aOff.xyz; vec3 r = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]); vec3 u = vec3(0.0,1.0,0.0);
             vec3 w = c + r * position.x * aOff.w * 1.6 + u * position.y * aOff.w; vW = w; gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0); }`,
@@ -737,8 +761,8 @@ export class SkyCastle {
             float lit = clamp(pow(vUv.y, 1.4) * 1.1 + side * 0.4 + (t.r - 0.6) * 0.8, 0.0, 1.0);
             vec3 col = mix(uShade, uLit, lit);
             col += uSunCol * (pow(mu, 8.0) * 1.2 + pow(mu, 2.5) * 0.2) * (1.2 - t.a * 0.6);
-            float dist = length(vW.xz - uCam.xz); col = mix(col, uHaze + uSunCol * pow(mu, 6.0) * 0.6, clamp(1.0 - exp(-dist * 0.00012), 0.0, 1.0));
-            gl_FragColor = vec4(col, t.a * 0.97); }`,
+            float dist = length(vW.xz - uCam.xz); col = mix(col, uHaze + uSunCol * pow(mu, 6.0) * 0.6, clamp(1.0 - exp(-dist * 0.00005), 0.0, 1.0));
+            gl_FragColor = vec4(col, t.a); }`,
       });
       const puffsMesh = new THREE.Mesh(geo, pm); puffsMesh.frustumCulled = false; puffsMesh.renderOrder = -4; (puffsMesh as any).noAtmos = true;
       this.scene.add(puffsMesh);

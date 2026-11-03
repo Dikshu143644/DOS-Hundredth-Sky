@@ -55,7 +55,7 @@ export class CharacterView {
         // phase 3: every hero wears a cloth cloak in the title-menu style (class-coloured, wind + run trail)
         if (wantCloak) {
           const base = CLOAK_COLORS[key] ?? 0xd6c4a0;
-          const col = ap?.accent !== undefined && kind !== 'n' ? new THREE.Color(base).lerp(new THREE.Color(ap.accent), 0.22).getHex() : base;
+          const col = ap?.accent !== undefined && kind !== 'n' ? new THREE.Color(base).lerp(new THREE.Color(ap.accent), 0.08).getHex() : base;
           this.cloak = makeCloak(rig.root, { color: col, length: 1.05, width: 0.72 });
         }
         this.play('idle', 0); if (this.pendingWeapon !== undefined) this.setWeapon(this.pendingWeapon);

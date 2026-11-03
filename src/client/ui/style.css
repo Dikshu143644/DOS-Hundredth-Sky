@@ -365,11 +365,11 @@ body.poster #gl { opacity: 0; }
 .tm.tm-hidden { opacity: 0; visibility: hidden; transition: opacity .5s, visibility .5s; }
 .tm-brand { position: absolute; left: max(28px, 4vw); top: max(26px, 5vh); text-shadow: 0 2px 18px rgba(60,30,8,.55), 0 0 2px rgba(60,30,8,.4); pointer-events: none; }
 .tm-dos { font-family: var(--display); font-weight: 700; font-size: clamp(64px, 11vw, 132px); line-height: .9; letter-spacing: .06em; color: var(--ivory2);
-  background: linear-gradient(180deg, #fffaf0 0%, #f7e8c6 55%, #d9b671 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 3px 10px rgba(70,35,8,.45)); }
+  background: linear-gradient(180deg, #fffaf0 0%, #f7e8c6 55%, #d9b671 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; text-shadow: none; -webkit-text-stroke: 0.6px rgba(120,80,30,.55); filter: drop-shadow(0 2px 2px rgba(60,30,6,.55)) drop-shadow(0 4px 14px rgba(70,35,8,.4)); }
 .tm-o { position: relative; display: inline-block; }
 .tm-o i { position: absolute; left: 50%; top: 51%; width: .36em; height: .36em; transform: translate(-50%, -50%); color: #fff6dc; filter: drop-shadow(0 0 6px rgba(255,236,190,.9)); -webkit-text-fill-color: initial; }
 .tm-o i svg { width: 100%; height: 100%; display: block; }
-.tm-sub { font-family: var(--display); font-weight: 500; font-size: clamp(14px, 2.1vw, 24px); letter-spacing: .42em; margin-top: .55em; color: var(--ivory); }
+.tm-sub { text-shadow: 0 1px 3px rgba(50,25,5,.7), 0 0 14px rgba(50,25,5,.35); font-family: var(--display); font-weight: 500; font-size: clamp(14px, 2.1vw, 24px); letter-spacing: .42em; margin-top: .55em; color: var(--ivory); }
 .tm-rule { display: flex; align-items: center; gap: 10px; width: min(330px, 62vw); margin: 14px 0 12px; color: var(--gold2); }
 .tm-rule span { flex: 1; height: 1px; background: linear-gradient(90deg, rgba(246,236,212,.9), rgba(246,236,212,.25)); }
 .tm-rule span:last-child { background: linear-gradient(90deg, rgba(246,236,212,.25), transparent); }
@@ -453,3 +453,7 @@ body.poster #gl { opacity: 0; }
 #loading .prog i { background: linear-gradient(90deg, #d8b46a, #fff1c8) !important; box-shadow: 0 0 12px rgba(255,230,170,.9) !important; }
 #loading .pl { font-family: var(--display); letter-spacing: .3em; color: var(--ivory); }
 #hud .minimap { border: 1.5px solid rgba(246,236,212,.85); box-shadow: 0 0 0 5px rgba(246,236,212,.12), 0 0 0 6px rgba(246,236,212,.35), 0 10px 30px rgba(20,10,4,.45); }
+
+/* readability over bright golden skies: soft warm scrims behind the brand and the menu */
+#menu::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 48% 42% at 100% 92%, rgba(40,22,8,.42), transparent 70%), radial-gradient(ellipse 46% 34% at 0% 6%, rgba(40,22,8,.30), transparent 70%); }
+.tm-item span, .tm-tag, .tm-foot { text-shadow: 0 1px 3px rgba(40,20,4,.85), 0 0 16px rgba(40,20,4,.45); }

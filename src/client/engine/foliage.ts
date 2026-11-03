@@ -11,12 +11,14 @@ function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
     sh.uniforms.uTime = wind.uTime; sh.uniforms.uWind = wind.uWind;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind; varying vec3 vTreeVar;').replace('#include <begin_vertex>', `#include <begin_vertex>
       {
         vec3 ip = vec3(0.0);
         #ifdef USE_INSTANCING
           ip = instanceMatrix[3].xyz;
         #endif
+        // per-tree colour variation + crown occlusion (phase 3: breaks the uniform stylized look)
+        vTreeVar = vec3(fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453), clamp(position.y / 9.0, 0.0, 1.0), length(position.xz));
         float h = max(position.y, 0.0);
         float ph = ip.x*0.21 + ip.z*0.17;
         float sway = (sin(uTime*1.3 + ph) * 0.6 + sin(uTime*2.9 + ph*1.7)*0.25) * uWind;
@@ -24,6 +26,13 @@ function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
         transformed.z += cos(uTime*1.1 + ph) * ${strength.toFixed(3)} * h * h * 0.02 * uWind;
         ${leaves ? 'transformed += normal * sin(uTime*6.0 + position.x*3.0 + position.z*2.0 + ph) * 0.03 * uWind;' : ''}
       }`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTreeVar;').replace('#include <map_fragment>', `#include <map_fragment>
+      ${leaves && /Leaves/.test(mat.name) ? `{
+        float hv = vTreeVar.x;
+        vec3 tint = mix(vec3(0.78, 0.86, 0.62), vec3(1.08, 1.0, 0.72), hv);           // olive ↔ sun-gold greens
+        diffuseColor.rgb *= tint * mix(0.62, 1.08, smoothstep(0.15, 0.95, vTreeVar.y)); // darker inside/under the crown
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.33))), 0.12); // less candy saturation
+      }` : /Bark/.test(mat.name) ? 'diffuseColor.rgb *= mix(0.8, 1.05, vTreeVar.x) * vec3(0.92, 0.88, 0.84);' : ''}`);
   };
 }
 
