@@ -2,6 +2,7 @@
  *  summons and the death penalty. Everything here runs only on the authoritative server. */
 import { stepCharacter, hasLineOfSight, raycastWorld, sweepDash, newCharState, PHYS, MoveInput, CharState } from '../../shared/physics';
 import { heightAt, withZone } from '../../shared/world';
+import { AFFINITY_BONUS } from '../../shared/origin';
 import { clamp } from '../../shared/rng';
 import { classById, computeDamage, xpToNext, Element, MONSTERS, MonsterDef } from '../../shared/combat';
 import { SkillDef, skillById, rankScale, comboPower, COMBO_WINDOW, reaction, SkillEffects, masteryLevel, SUMMONS } from '../../shared/skills';
@@ -50,6 +51,7 @@ export class Combat {
   rankOf(p: Player, id: string) { return Math.max(1, p.char.skillRanks?.[id] ?? 1); }
   /** Can this player use this skill right now (class, level, advanced path)? */
   knows(p: Player, s: SkillDef) {
+    if (s.fusion) return (p.char.fusions ?? []).includes(s.id) && !!p.char.origin?.done;
     if (s.cls !== p.char.cls) return false;
     if (p.char.level < s.unlock) return false;
     if (s.slot === 5 && s.adv !== p.char.adv) return false;
@@ -70,12 +72,13 @@ export class Combat {
     const sp = skillById(skillId);
     if (!sp || p.dead || p.casting) return;
     const fail = (t: string) => p.conn?.send({ type: 'fx', kind: 'castfail', src: p.id, spell: sp.id, text: t });
-    if (!this.knows(p, sp)) return fail(sp.slot === 5 ? 'Needs the right advanced class' : `Unlocks at level ${sp.unlock}`);
+    if (!this.knows(p, sp)) return fail(sp.fusion ? 'Fuse it first (Status window, U)' : sp.slot === 5 ? 'Needs the right advanced class' : `Unlocks at level ${sp.unlock}`);
     if (now < p.stunUntil) return fail('Stunned');
     const rs = rankScale(sp, this.rankOf(p, sp.id));
     if ((p.cds[sp.id] ?? 0) > now) return fail('Not ready yet');
     if (p.mp < rs.mana) return fail('Not enough mana');
     p.mp -= rs.mana;
+    if (sp.chaos) p.hp = Math.max(1, p.hp - Math.round(p.mhp * 0.08)); // forbidden magic costs blood
     p.cds[sp.id] = now + rs.cooldown + sp.castTime;
     p.s.yaw = yaw;
     p.casting = { spell: sp.id, until: now + sp.castTime, target, aim, yaw };
@@ -359,6 +362,12 @@ export class Combat {
     if (dp && now < (dp.weakUntil ?? 0)) mul *= 1.1; // soul-weary takes more damage
     if (src.type === 'p' || src.type === 'b') { if (now < ((src as Player).weakUntil ?? 0)) mul *= 0.85; }
     if (src.type === 'm' && (src as Monster).enraged) mul *= 1.35;
+    // reincarnation: elemental affinity (+15 % dealt / −15 % taken), Great Sage weakness ×1.8, Sword Saint finishers
+    const so = sp?.char.origin, dso = dp?.char.origin;
+    if (so?.affinity && (so.affinity === element || (so.affinity === 'forbidden' && o.skill?.chaos))) mul *= 1 + AFFINITY_BONUS;
+    if (dso?.affinity && dso.affinity === element) mul *= 1 - AFFINITY_BONUS;
+    if (so?.cheat === 'great_sage' && weakTo && weakTo === element) mul *= 1.2;
+    if (so?.cheat === 'sword_saint' && o.basic && sp && sp.combo.n % 3 === 0) mul *= 1.5;
     const r = computeDamage({ atk, power: power * mul, def, element, weakTo, roll: this.g.rand(), critRoll: o.dot ? 1 : this.g.rand(), critChance });
     let dmg = r.dmg;
     // shields absorb first
@@ -367,7 +376,7 @@ export class Combat {
     if (dst.anim !== 'cast' && !o.dot) { dst.anim = 'hit'; dst.animUntil = now + 0.3; }
     this.g.broadcastNear(dst.s.x, dst.s.z, 150, { type: 'fx', kind: 'hit', src: src.id, dst: dst.id, amount: dmg, crit: r.crit, weak: r.weak, x: dst.s.x, y: dst.s.y + 2.1, z: dst.s.z, spell: o.dot ? 'dot' : o.skill?.id });
     // lifesteal
-    if (sp) { const ls = this.buffSum(sp, 'lifesteal', now); if (ls > 0 && !o.dot) sp.hp = Math.min(sp.mhp, sp.hp + dmg * ls); }
+    if (sp) { const ls = this.buffSum(sp, 'lifesteal', now) + (sp.char.origin?.cheat === 'predator' ? 0.05 : 0); if (ls > 0 && !o.dot) sp.hp = Math.min(sp.mhp, sp.hp + dmg * ls); }
     if (isMon) {
       const m = dst as Monster;
       const credit = sp ?? src;

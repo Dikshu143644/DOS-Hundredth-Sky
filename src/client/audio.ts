@@ -153,6 +153,10 @@ export class Audio {
   explosion() { this.noise(1.4, 900, 'lowpass', 0.8, this.sfx, 60); this.tone(70, 0.8, 0.5, 'sine', 30); }
   thunder(delay: number, strength: number) { this.noise(3.5, 300, 'lowpass', 0.9 * strength, this.amb, 40, delay); this.noise(0.3, 4000, 'highpass', 0.2 * strength, this.amb, undefined, delay * 0.2); }
   levelUp() { [0, 4, 7, 12, 16].forEach((n, i) => this.tone(this.mtof(72 + n), 0.9, 0.08, 'triangle', undefined, i * 0.09)); }
+  horn() { this.tone(330, 1.1, 0.25, 'sawtooth'); this.tone(415, 1.1, 0.2, 'sawtooth'); this.noise(1.2, 2500, 'bandpass', 0.25, this.sfx, 4000, 0.3); }
+  crash() { this.noise(1.8, 1200, 'lowpass', 1.0, this.sfx, 80); this.tone(60, 1.2, 0.6, 'sine', 25); }
+  voidChime() { [0, 7, 12, 19, 24].forEach((n, i) => this.tone(this.mtof(60 + n), 4, 0.05, 'sine', undefined, i * 0.35)); this.noise(5, 6000, 'bandpass', 0.04); }
+  goddess() { [0, 4, 7].forEach((n, i) => this.tone(this.mtof(76 + n), 1.6, 0.04, 'sine', undefined, i * 0.12)); }
   loot() { this.tone(1320, 0.2, 0.06, 'triangle'); this.tone(1760, 0.3, 0.05, 'triangle', undefined, 0.08); }
   death() { this.tone(220, 1.6, 0.15, 'sawtooth', 55); }
   questReveal() { this.tone(this.mtof(62), 2.5, 0.08, 'sine'); this.tone(this.mtof(69), 2.5, 0.06, 'sine', undefined, 0.3); this.tone(this.mtof(74), 3, 0.06, 'sine', undefined, 0.6); this.noise(2.5, 4000, 'bandpass', 0.05); }

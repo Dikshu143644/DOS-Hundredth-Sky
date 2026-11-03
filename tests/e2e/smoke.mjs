@@ -24,7 +24,7 @@ if (!base) {
 const t0 = Date.now();
 const { browser, page, errors } = await launch({ viewport: { width: 1280, height: 720 } });
 try {
-  await page.goto(`${base}/?autotest=1&quality=low`, { waitUntil: 'load' });
+  await page.goto(`${base}/?autotest=1&prologue=skip&quality=low`, { waitUntil: 'load' });
   await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 60000 });
   step('title menu shown');
   await page.click('#menu .tm-item[data-act=newgame]');

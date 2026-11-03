@@ -16,7 +16,7 @@ const g = (fn, a) => page.evaluate(fn, a);
 const chat = async (t) => { await g((t) => window.__dos.game.net.send({ type: 'chat', text: t }), t); await page.waitForTimeout(900); };
 const waitZone = async (z) => { try { await page.waitForFunction((z) => window.__dos.game.engine.zone === z && !window.__dos.game.loadingZone, z, { timeout: 120000 }); } catch { const st = await g(() => ({ zone: window.__dos.game.engine.zone, loading: window.__dos.game.loadingZone, me: [window.__dos.game.me.x, window.__dos.game.me.z], notices: [...document.querySelectorAll('.notice, .chat .line')].slice(-6).map((e) => e.textContent) })); fail('zone ' + z + ' never arrived: ' + JSON.stringify(st) + ' errors: ' + errors.slice(0, 6).join(' | ')); } await page.waitForTimeout(400); };
 try {
-  await page.goto(`${base}/?autotest=1&quality=${process.env.Q || 'medium'}`, { waitUntil: 'load' });
+  await page.goto(`${base}/?autotest=1&prologue=skip&quality=${process.env.Q || 'medium'}`, { waitUntil: 'load' });
   await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 60000 });
   await page.click('#menu .tm-item[data-act=newgame]');
   await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });

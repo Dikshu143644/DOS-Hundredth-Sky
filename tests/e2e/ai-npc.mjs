@@ -17,7 +17,7 @@ if (!base) {
 const fail = (m) => { console.error('AI-NPC FAIL:', m); server?.kill('SIGKILL'); process.exit(1); };
 const { browser, page, errors } = await launch({ viewport: { width: 1600, height: 900 } });
 try {
-  await page.goto(`${base}/?autotest=1&quality=${process.env.Q || 'medium'}`, { waitUntil: 'load' });
+  await page.goto(`${base}/?autotest=1&prologue=skip&quality=${process.env.Q || 'medium'}`, { waitUntil: 'load' });
   await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 90000 });
   await page.click('#menu .tm-item[data-act=newgame]');
   await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });

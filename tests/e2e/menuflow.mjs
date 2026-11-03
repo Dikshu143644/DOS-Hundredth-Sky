@@ -9,7 +9,7 @@ const fail = async (m) => { console.error('MENUFLOW FAIL:', m, JSON.stringify(er
 const step = (s) => console.log('·', s);
 const q = process.env.Q || 'low';
 try {
-  await page.goto(`${base}/?autotest=1&quality=${q}`, { waitUntil: 'load' });
+  await page.goto(`${base}/?autotest=1&prologue=skip&quality=${q}`, { waitUntil: 'load' });
   await page.waitForSelector('#menu [data-act=continue]', { timeout: 60000 });
   const t = await page.evaluate(() => ({ menu: Math.round(window.__menuShownAt) }));
   step(`title menu shown (${t.menu} ms after navigation start)`);

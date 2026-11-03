@@ -12,6 +12,7 @@ import { GameClient } from './game/client';
 import { CharacterView } from './game/character';
 import { SkyCastle } from './scenes/skycastle';
 import type { Armory } from './scenes/armory';
+import type { Prologue } from './scenes/prologue';
 import { show, hide, loginScreen, charSelectScreen, createScreen, loadingScreen, ui } from './ui/screens';
 import { titleMenu, confirmBox, TitleMenu, MenuAction } from './ui/menu';
 import { openSettings } from './ui/settings';
@@ -35,7 +36,10 @@ const dolly = new THREE.Group();
 dolly.add(engine.camera);
 let game: GameClient | null = null;
 let preview: CharacterView | null = null;
-type Mode = 'boot' | 'cine' | 'sky' | 'menu' | 'game' | 'armory';
+type Mode = 'boot' | 'cine' | 'sky' | 'menu' | 'game' | 'armory' | 'prologue';
+let pro: Prologue | null = null;
+const PROLOGUE_SKIP = params.get('prologue') === 'skip';
+addEventListener('dos:prologue-sfx', (e) => { const k = (e as CustomEvent).detail; if (k === 'horn') audio.horn(); else if (k === 'crash') audio.crash(); else if (k === 'void') audio.voidChime(); });
 let mode = 'boot' as Mode;
 let sky: SkyCastle | null = null;
 let armory: Armory | null = null;
@@ -45,7 +49,7 @@ let net: Transport | null = null;
 let welcome: Extract<S2C, { type: 'welcome' }> | null = null;
 const handlers: ((m: S2C) => void)[] = [];
 const state = { user: '', chars: [] as CharacterSummary[] };
-window.__dos = { engine, get game() { return game; }, state, settings, get mode() { return mode; }, get net() { return net; }, get welcome() { return welcome; }, get sky() { return sky; }, get armory() { return armory; }, openArmory: (id?: string) => openArmory(id) };
+window.__dos = { engine, get game() { return game; }, state, settings, get mode() { return mode; }, get net() { return net; }, get welcome() { return welcome; }, get sky() { return sky; }, get armory() { return armory; }, get pro() { return pro; }, openArmory: (id?: string) => openArmory(id) };
 
 // ------------------------------------------------------------------ title scene first, world streamed behind it (phase 3)
 // The title menu (golden-hour sky-castle) is the only thing built before the first frame; the
@@ -57,7 +61,7 @@ const skyPromise = (async () => {
   try { const s = new SkyCastle(engine.renderer, skyQ()); await s.build(); s.setSize(innerWidth, innerHeight); return s; }
   catch (e) { console.warn('[dos] title scene failed, using the poster', e); return null; }
 })();
-addEventListener('resize', () => { sky?.setSize(innerWidth, innerHeight); armory?.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { sky?.setSize(innerWidth, innerHeight); armory?.setSize(innerWidth, innerHeight); pro?.setSize(innerWidth, innerHeight); });
 let worldLabel = 'Preparing the world';
 let buildPromise: Promise<void> | null = null;
 function startWorld(): Promise<void> {
@@ -157,6 +161,7 @@ const loop = () => {
     return;
   }
   if (mode === 'armory' && armory) { armory.render(dt); return; }
+  if (mode === 'prologue' && pro) { pro.render(dt); return; }
   if (!engine.ready) return;
   if (bench) {
     bench.t += dt; bench.frames.push(now);
@@ -281,9 +286,12 @@ async function onMenu(a: MenuAction) {
       return;
     }
     if (a === 'continue' && !chars.length) menu?.toast('No hero yet. Let us create one.');
-    if (!(await leaveSky())) return;
-    if (a === 'newgame' && chars.length >= 4) { showChars(); return; }
-    showCreate();
+    if (a === 'newgame' && chars.length >= 4) { if (!(await leaveSky())) return; showChars(); return; }
+    // NEW GAME: the reincarnation prologue opens (an ordinary life ends → the void), then the soul takes shape
+    menu?.hide();
+    void startWorld();
+    await playLifeAct();
+    showCreate(true);
   } finally { busy = false; menu?.busy(false); }
 }
 
@@ -347,9 +355,27 @@ function showChars() {
     onBack: () => backToTitle(),
   });
 }
-function showCreate() {
+/** Act I of the prologue (skippable), ending in the void between worlds. */
+async function playLifeAct() {
+  const { Prologue } = await import('./scenes/prologue');
+  pro = new Prologue(engine.renderer);
+  mode = 'prologue';
+  if (PROLOGUE_SKIP || params.has('lifeSkip')) { pro.enterVoid(); return; }
+  const btn = document.createElement('button'); btn.className = 'pro-skip'; btn.type = 'button'; btn.textContent = 'Skip ›';
+  ui().appendChild(btn);
+  await new Promise<void>((r) => {
+    pro!.onLifeEnd = r;
+    const sk = () => pro?.skipLife();
+    btn.onclick = sk;
+    const k = (e: KeyboardEvent) => { if (e.code === 'Escape' || e.code === 'Space' || e.code === 'Enter') sk(); };
+    addEventListener('keydown', k);
+    const done = r; pro!.onLifeEnd = () => { removeEventListener('keydown', k); done(); };
+  });
+  btn.remove();
+}
+function showCreate(soul = false) {
   const C = createScreen({
-    onChange: (cls, ap) => void setPreview(cls, ap),
+    onChange: (cls, ap) => void (soul && pro ? pro.setSoul(cls, ap) : setPreview(cls, ap)),
     onCreate: (name, cls, ap) => {
       once(['chars', 'charError'], (m) => {
         if (m.type === 'charError') { C.error(m.error); return; }
@@ -359,20 +385,30 @@ function showCreate() {
       });
       net!.send({ type: 'createChar', name, cls, appearance: ap });
     },
-    onBack: () => { hide('create', false); if (state.chars.length) showChars(); else backToTitle(); },
+    onBack: () => { hide('create', false); if (soul && pro) { pro.dispose(); pro = null; void leaveSky().then(() => { if (state.chars.length) showChars(); else backToTitle(); }); return; } if (state.chars.length) showChars(); else backToTitle(); },
   });
+  if (soul) { C.el.classList.add('over-void'); const b = document.createElement('div'); b.className = 'void-banner'; b.innerHTML = '<b>BETWEEN WORLDS</b><span>Your soul takes shape… who will you be in the new world?</span>'; C.el.prepend(b); }
 }
 
 function enterWorld(c: CharacterSummary) {
   hide('chars', false); hide('create', false); menu?.hide();
   localStorage.setItem('dos.lastChar', c.id);
-  const L = loadingScreen();
+  let L: ReturnType<typeof loadingScreen> | null = mode === 'prologue' ? null : loadingScreen();
   const t0 = performance.now();
   void startWorld();
   let joined: Extract<S2C, { type: 'joined' }> | null = null;
+  let inPrologue = false;
   once(['joined', 'charError'], (m) => { if (m.type === 'joined') joined = m; });
   net!.send({ type: 'join', charId: c.id });
   const iv = setInterval(() => {
+    // a soul that has not been reincarnated yet: the Goddess first, the world streams in behind her
+    if (joined?.prologue && !inPrologue) {
+      inPrologue = true;
+      void runPrologue(c, joined).then((j2) => { joined = j2; inPrologue = false; if (!engine.ready && !L) L = loadingScreen(); });
+      return;
+    }
+    if (inPrologue) return;
+    if (!L) { if (joined && engine.ready) L = loadingScreen(); else if (!joined) return; else { L = loadingScreen(); } }
     // real progress: the streamed world (85 %) + the server handshake (15 %)
     const w = worldProgress();
     const p = Math.min(1, w * 0.85 + (joined ? 0.15 : Math.min(0.1, (performance.now() - t0) / 20000)));
@@ -382,6 +418,7 @@ function enterWorld(c: CharacterSummary) {
       const j = joined as Extract<S2C, { type: 'joined' }>;
       saveHero(c.name, j.self);
       preview?.dispose(); preview = null;
+      if (pro) { pro.dispose(); pro = null; }
       if (sky) { sky.dispose(); sky = null; }
       menu?.remove(); menu = null;
       engine.env.cinematicSun = null;
@@ -396,6 +433,25 @@ function enterWorld(c: CharacterSummary) {
       if (navigator.xr) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { if (ok) { const b = VRButton.createButton(engine.renderer); b.style.bottom = '90px'; document.body.appendChild(b); } }).catch(() => {});
     }
   }, 50);
+}
+/** Act II: the void and the Goddess. Afterwards the server has the soul's choices (class may have
+ *  changed), so the hero joins again and gets a fresh, reincarnated state. */
+async function runPrologue(c: CharacterSummary, j: Extract<S2C, { type: 'joined' }>): Promise<Extract<S2C, { type: 'joined' }>> {
+  document.getElementById('loading')?.remove();
+  if (!pro) { const { Prologue } = await import('./scenes/prologue'); pro = new Prologue(engine.renderer); pro.enterVoid(); }
+  mode = 'prologue';
+  void pro.setSoul(j.char.cls as ClassId, j.char.appearance);
+  const { runGoddess } = await import('./ui/prologue');
+  const wait = <T extends S2C['type']>(t: T) => new Promise<Extract<S2C, { type: T }>>((res) => once([t], (m) => { res(m as any); }));
+  (window as any).__prologue = 'goddess';
+  await runGoddess({ send: (m) => net!.send(m), wait, scene: pro, cls: j.char.cls, name: c.name, autoSkip: PROLOGUE_SKIP });
+  (window as any).__prologue = 'done';
+  const again = new Promise<Extract<S2C, { type: 'joined' }>>((res) => once(['joined'], (m) => { res(m); }));
+  net!.send({ type: 'join', charId: c.id });
+  const j2 = await again;
+  if (pro) { pro.dispose(); pro = null; }
+  mode = 'menu'; menuT = 0;
+  return j2;
 }
 function saveHero(name: string, s: { hp: number; mhp: number; mp: number; mmp: number }) {
   try { localStorage.setItem('dos.lastHero', JSON.stringify({ name, hp: Math.round(s.hp), hpMax: Math.round(s.mhp), mp: Math.round(s.mp), mpMax: Math.round(s.mmp) })); } catch { /* private mode */ }

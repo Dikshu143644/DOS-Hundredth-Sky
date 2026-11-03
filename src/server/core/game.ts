@@ -1,6 +1,8 @@
 import { newCharState, stepCharacter, CharState, MoveInput, PHYS, hasLineOfSight, raycastWorld, sweepDash } from '../../shared/physics';
 import { heightAt, SPAWN, POIS, poiAt, POI, WATER_LEVEL, buildZone, setActiveZone, withZone, ZONE } from '../../shared/world';
 import { Zones } from './zones';
+import { Origin } from './origin';
+import { applyOrigin, type Injury } from '../../shared/origin';
 import { ZONE_IDS, REGIONS } from '../../shared/regions';
 import { mulberry32, clamp } from '../../shared/rng';
 import {
@@ -26,6 +28,8 @@ export interface CharRecord {
   attrs?: Partial<Record<Attr, number>>; skillRanks?: Record<string, number>; adv?: string | null; titles?: string[]; title?: string | null;
   rep?: Record<string, number>; mastery?: Record<string, number>; counters: Record<string, number>; shrine?: string; zone?: string;
   shrines?: string[]; bind?: string; visited?: string[];
+  origin?: { done: boolean; notes: string[]; pastLife?: string; cheat?: string; affinity?: string; rewindAt?: number };
+  fusions?: string[]; advPts?: number; rankProtectUntil?: number; injuries?: Injury[];
 }
 export interface UserRecord { hash: string; created: number; chars: CharRecord[] }
 export interface NpcMemory { met: number; lastSeen: number; short: { who: 'player' | 'npc'; text: string }[]; long: string[] }
@@ -94,6 +98,7 @@ export class Game {
   combat: Combat;
   progress: Progression;
   zones!: Zones;
+  origin!: Origin;
   onZoneEnter?: (p: Player, from: string) => void;
   newId() { return this.nextId++; }
   rand() { return this.rnd(); }
@@ -109,6 +114,7 @@ export class Game {
     this.combat = new Combat(this);
     this.progress = new Progression(this);
     this.zones = new Zones(this);
+    this.origin = new Origin(this);
     for (const z of ZONE_IDS) withZone(z, () => buildZone());
     setActiveZone('capital');
     this.zones.spawnAll();
@@ -225,6 +231,10 @@ export class Game {
       case 'attack': this.combat.basicAttack(p, +m.yaw || 0, m.target, now); return;
       case 'parry': this.combat.parry(p, now); return;
       case 'resync': p.known.clear(); return;
+      case 'prologue': void this.origin.handle(p, m as any); return;
+      case 'fuse': this.origin.fuse(p, String((m as any).a), String((m as any).b)); return;
+      case 'status': this.origin.sendStatus(p); return;
+      case 'leaderboard': this.origin.leaderboard(p); return;
       case 'travel': this.zones.travel(p, String(m.shrine ?? ''), now); return;
       case 'map': this.zones.sendMap(p); return;
       case 'allocStat': this.progress.allocStat(p, String(m.attr), Number(m.n ?? 1)); return;
@@ -282,9 +292,12 @@ export class Game {
   statsOf(ch: CharRecord): Stats {
     const st = statsFor(ch.cls, ch.level, ch.attrs ?? {}, ch.adv);
     const b = equipBonus(ch.equipment ?? {});
-    return { ...st, atk: st.atk + b.atk, mag: st.mag + b.mag, def: st.def + b.def, maxHp: st.maxHp + b.hp, maxMp: st.maxMp + b.mp };
+    // reincarnation: unique skill, affinity cost (Forbidden) and lasting injuries
+    return applyOrigin({ ...st, atk: st.atk + b.atk, mag: st.mag + b.mag, def: st.def + b.def, maxHp: st.maxHp + b.hp, maxMp: st.maxMp + b.mp }, { cheat: ch.origin?.cheat, affinity: ch.origin?.affinity, injuries: ch.injuries }, Date.now());
   }
   /** Recompute stats after attributes/equipment/advanced class change, keeping HP/MP fractions. */
+  /** Class changed in the prologue: hand out that class's starter kit. */
+  reKit(p: Player) { ensureKit(p.char); p.model = p.char.cls; this.refreshStats(p); p.conn?.send({ type: 'equipment', equipment: (p.char.equipment ?? {}) as Record<string, string>, inventory: p.char.inventory, ok: true }); p.conn?.send({ type: 'notice', text: `You are now a ${classById(p.char.cls).name}.`, style: 'info' }); }
   refreshStats(p: Player) {
     const hpFrac = p.hp / Math.max(1, p.mhp), mpFrac = p.mp / Math.max(1, p.stats.maxMp);
     p.stats = this.statsOf(p.char); p.mhp = p.stats.maxHp; p.hp = Math.max(1, Math.round(p.mhp * hpFrac)); p.mp = Math.round(p.stats.maxMp * mpFrac);
@@ -311,11 +324,13 @@ export class Game {
     };
     this.ents.set(id, p);
     this.players.set(id, p);
+    // still in the void between worlds: invisible to others and to monsters until the prologue ends
+    if (!bot && this.origin.needsPrologue(ch)) (p as any).hidden = true;
     if (!bot) {
       this.ensureStarterQuest(p);
       queueMicrotask(() => this.zones.sendMap(p));
-      conn!.send({ type: 'joined', id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
-      this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
+      conn!.send({ type: 'joined', prologue: !bot && this.origin.needsPrologue(ch), id, t: this.o.now(), worldTime: this.worldTime, weather: this.zones.weatherOf(bind.zone), zone: bind.zone, char: summary(ch), self: this.selfState(p), inventory: ch.inventory, quests: ch.quests.map(questView), equipment: ch.equipment as Record<string, string> });
+      if (!(p as any).hidden) this.broadcastNear(s.x, s.z, 300, { type: 'chat', from: 'World', text: `${ch.name} the ${cls.name} has arrived in ${REGIONS[bind.zone as 'capital'].name}.`, channel: 'world' }, id);
       this.progress.send(p);
       this.progress.award(p, 'newcomer');
       this.progress.checkTitles(p);
@@ -409,7 +424,7 @@ export class Game {
     // regen
     const outOfCombat = now - p.lastHurt > 6;
     p.mp = Math.min(p.stats.maxMp, p.mp + dt * (outOfCombat ? 6 : 2.5) * p.stats.mpRegen);
-    p.hp = Math.min(p.mhp, p.hp + dt * (outOfCombat ? p.mhp * 0.025 : 0));
+    p.hp = Math.min(p.mhp, p.hp + dt * (outOfCombat ? p.mhp * (p.char.origin?.cheat === 'dragon_heart' ? 0.04 : 0.025) : 0));
     // fell out of the world? (should never happen; belt and braces)
     if (p.s.y < heightAt(p.s.x, p.s.z) - 2 || !isFinite(p.s.x)) { p.s = newCharState(SPAWN.x, SPAWN.z); }
     // points of interest → quests / sparks
@@ -463,6 +478,7 @@ export class Game {
 
   kill(src: Ent, dst: Ent, now: number) {
     if (dst.dead) return;
+    if (dst.type === 'p' && this.origin.rewind(dst as Player, now)) return; // Return by Death
     dst.hp = 0;
     dst.dead = true;
     dst.anim = 'death';
@@ -494,13 +510,14 @@ export class Game {
       p.respawnAt = now + 8;
       for (const s of [...this.ents.values()]) if (s.type === 's' && (s as Summon).owner === p.id) this.removeEnt(s.id);
       const pen = p.type === 'p' ? this.combat.deathPenalty(p) : { xpLost: 0, goldLost: 0 };
-      p.conn?.send({ type: 'died', by: src.name, xpLost: pen.xpLost, goldLost: pen.goldLost, at: this.shrineName(p), wait: 8 });
+      const lasting = this.origin.onDeath(p, src);
+      p.conn?.send({ type: 'died', by: src.name, xpLost: pen.xpLost, goldLost: pen.goldLost, at: this.shrineName(p), wait: 8, ...lasting });
       this.progress.checkTitles(p);
       this.markDirty();
     }
   }
   /** hook for later systems (world bosses, tower, quests) */
-  onMonsterKilled(m: Monster, killer: Ent, now: number) { void m; void killer; void now; }
+  onMonsterKilled(m: Monster, killer: Ent, now: number) { this.origin.onKill(m, killer, now); }
 
   /** Where a fallen player comes back (the last shrine they touched). */
   shrineName(p: Player) { return this.zones.bindPos(p).name; }
@@ -526,6 +543,7 @@ export class Game {
   }
 
   private giveXp(p: Player, amount: number) {
+    if (p.char.origin?.cheat === 'predator') amount *= 1.15;
     const before = p.char.level;
     const r = grantXp(p.char.level, p.char.xp, amount);
     p.char.level = r.level; p.char.xp = r.xp; p.level = r.level;
@@ -539,6 +557,7 @@ export class Game {
       for (const s of unlocked) p.conn?.send({ type: 'notice', text: `New skill: ${s.name} · ${s.title}`, style: 'rank' });
       if (p.char.level >= 20 && before < 20) p.conn?.send({ type: 'notice', text: 'Advanced classes unlocked — open the Hero panel (P)', style: 'rank' });
       this.progress.send(p);
+      this.origin.sendStatus(p);
       this.progress.checkTitles(p);
     }
     if (before !== p.char.level || amount > 0) this.markDirty();
@@ -577,7 +596,7 @@ export class Game {
         if (m.aiTimer <= 0 || this.tickN % 4 === 0) {
           let best: Ent | null = null, bd = aggroR;
           for (const p of this.ents.values()) {
-            if (p.dead || p.zone !== m.zone || !(p.type === 'p' || p.type === 'b' || p.type === 's')) continue;
+            if (p.dead || p.zone !== m.zone || (p as any).hidden || !(p.type === 'p' || p.type === 'b' || p.type === 's')) continue;
             const d = Math.hypot(p.s.x - m.s.x, p.s.z - m.s.z);
             if (d < bd && hasLineOfSight(m.s.x, m.s.y + 1.5, m.s.z, p.s.x, p.s.y + 1.5, p.s.z)) { bd = d; best = p; }
           }
