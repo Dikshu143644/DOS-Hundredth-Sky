@@ -1009,7 +1009,7 @@ export class Game {
       b.retreat = p.hp < p.mhp * 0.3 || (b.retreat && p.hp < p.mhp * 0.9);
       if (!b.retreat) {
         let best: Ent | null = null, bd = 28;
-        for (const e of this.ents.values()) if (e.type === 'm' && !e.dead) { const d = Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z); if (d < bd) { bd = d; best = e; } }
+        for (const e of this.ents.values()) if (e.type === 'm' && !e.dead && e.zone === p.zone) { const d = Math.hypot(e.s.x - p.s.x, e.s.z - p.s.z); if (d < bd) { bd = d; best = e; } }
         b.target = best?.id ?? 0;
       } else b.target = 0;
       if (!b.target && (!b.goal || Math.hypot(b.goal.x - p.s.x, b.goal.z - p.s.z) < 4)) {

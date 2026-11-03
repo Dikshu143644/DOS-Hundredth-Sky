@@ -14,7 +14,9 @@
     "test:e2e": "node tests/e2e/smoke.mjs",
     "typecheck": "tsc --noEmit",
     "test:menu": "node tests/e2e/menuflow.mjs",
-    "test:load": "node tests/e2e/loadtime.mjs"
+    "test:load": "node tests/e2e/loadtime.mjs",
+    "test:bots": "tsx tests/e2e/m7bots.ts ws://localhost:8787/ws 4 10",
+    "test:m7": "node tests/e2e/m7play.mjs spawn /tmp/m7 low,medium,high"
   },
   "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
