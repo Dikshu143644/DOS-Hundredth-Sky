@@ -11,12 +11,14 @@ function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
     sh.uniforms.uTime = wind.uTime; sh.uniforms.uWind = wind.uWind;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; uniform float uWind; varying vec3 vTreeVar;').replace('#include <begin_vertex>', `#include <begin_vertex>
       {
         vec3 ip = vec3(0.0);
         #ifdef USE_INSTANCING
           ip = instanceMatrix[3].xyz;
         #endif
+        // per-tree colour variation + crown occlusion (phase 3: breaks the uniform stylized look)
+        vTreeVar = vec3(fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453), clamp(position.y / 9.0, 0.0, 1.0), length(position.xz));
         float h = max(position.y, 0.0);
         float ph = ip.x*0.21 + ip.z*0.17;
         float sway = (sin(uTime*1.3 + ph) * 0.6 + sin(uTime*2.9 + ph*1.7)*0.25) * uWind;
@@ -24,6 +26,13 @@ function addWind(mat: THREE.Material, strength: number, leaves: boolean) {
         transformed.z += cos(uTime*1.1 + ph) * ${strength.toFixed(3)} * h * h * 0.02 * uWind;
         ${leaves ? 'transformed += normal * sin(uTime*6.0 + position.x*3.0 + position.z*2.0 + ph) * 0.03 * uWind;' : ''}
       }`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTreeVar;').replace('#include <map_fragment>', `#include <map_fragment>
+      ${leaves && /Leaves/.test(mat.name) ? `{
+        float hv = vTreeVar.x;
+        vec3 tint = mix(vec3(0.78, 0.86, 0.62), vec3(1.08, 1.0, 0.72), hv);           // olive ↔ sun-gold greens
+        diffuseColor.rgb *= tint * mix(0.62, 1.08, smoothstep(0.15, 0.95, vTreeVar.y)); // darker inside/under the crown
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.33))), 0.12); // less candy saturation
+      }` : /Bark/.test(mat.name) ? 'diffuseColor.rgb *= mix(0.8, 1.05, vTreeVar.x) * vec3(0.92, 0.88, 0.84);' : ''}`);
   };
 }
 
@@ -64,12 +73,12 @@ function makeMat(name: string): THREE.Material {
     m = new THREE.MeshStandardMaterial({ map: tex(`tex/q_${name}.jpg`), roughness: 0.95 });
     addWind(m, 0.15, false);
   } else if (/Rock/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Rocks.jpg'), roughness: 0.9, color: 0xc8c4bc });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Rocks.webp'), roughness: 0.9, color: 0xc8c4bc });
   } else if (/Flowers/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Flowers.png'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8 });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Flowers.webp'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8 });
     addWind(m, 0.8, true);
   } else if (/Grass/.test(name)) {
-    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Grass.png'), side: THREE.DoubleSide, roughness: 0.85 });
+    m = new THREE.MeshStandardMaterial({ map: tex('tex/q_Grass.webp'), side: THREE.DoubleSide, roughness: 0.85 });
     addWind(m, 1, false);
   } else m = new THREE.MeshStandardMaterial({ color: 0x777777 });
   m.name = name;
@@ -171,24 +180,29 @@ export class Foliage {
   }
 
   private buildGrass(count: number, terrain: Terrain) {
-    // clump of 5 tapered blades
+    // phase 3: a fine clump of 13 thin tapered blades, each with its own green-to-straw colour
+    // (dark rooted base, sun-bleached tips), closer to the meadows in the references
     const blades: THREE.BufferGeometry[] = [];
-    for (let b = 0; b < 7; b++) {
-      const g = new THREE.PlaneGeometry(0.11, 0.46, 1, 3);
+    const rr = (() => { let s = 1234567; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+    for (let b = 0; b < 13; b++) {
+      const hgt = 0.3 + rr() * 0.32, wid = 0.028 + rr() * 0.018;
+      const g = new THREE.PlaneGeometry(wid, hgt, 1, 4);
       const p = g.attributes.position as THREE.BufferAttribute;
       const col = new Float32Array(p.count * 3);
+      const tip = new THREE.Color().setHSL(0.14 + rr() * 0.08, 0.45 + rr() * 0.2, 0.36 + rr() * 0.12);
+      const root = new THREE.Color().setHSL(0.22 + rr() * 0.05, 0.45, 0.10 + rr() * 0.06);
+      const lean = 0.06 + rr() * 0.14;
       for (let i = 0; i < p.count; i++) {
-        const y = p.getY(i) + 0.23, t = y / 0.46;
-        p.setX(i, p.getX(i) * (1 - t * 0.9));
+        const y = p.getY(i) + hgt / 2, t = y / hgt;
+        p.setX(i, p.getX(i) * (1 - t * 0.92));
         p.setY(i, y);
-        p.setZ(i, t * t * 0.12);
-        const c = new THREE.Color(0x6f8a3c).lerp(new THREE.Color(0xd2dc8a), t * t);
+        p.setZ(i, t * t * lean);
+        const c = root.clone().lerp(new THREE.Color().setHSL(0.22 + rr() * 0.04, 0.42, 0.22), Math.min(1, t * 1.6)).lerp(tip, Math.max(0, t - 0.45) * 1.6);
         col.set([c.r, c.g, c.b], i * 3);
       }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      g.rotateY((b / 7) * Math.PI * 2 + Math.random());
-      g.translate((Math.random() - 0.5) * 0.25, 0, (Math.random() - 0.5) * 0.25);
-      g.scale(1, 0.75 + Math.random() * 0.6, 1);
+      g.rotateY(rr() * Math.PI * 2);
+      g.translate((rr() - 0.5) * 0.3, 0, (rr() - 0.5) * 0.3);
       blades.push(g);
     }
     const geo = mergeGeometries(blades)!;

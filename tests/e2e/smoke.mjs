@@ -1,5 +1,5 @@
 // Playwright smoke test: boots a real server, then in a real (headless) browser:
-// register → create character → enter world → walk into the city wall (must not pass) → cast IGNIS.
+// title menu → New Game → register → create character → enter world → walk into the city wall (must not pass) → cast IGNIS.
 // Exit code 0 = pass. Usage: node tests/e2e/smoke.mjs [--url http://host:port]   (default: spawns dist/server.mjs)
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -25,9 +25,11 @@ const t0 = Date.now();
 const { browser, page, errors } = await launch({ viewport: { width: 1280, height: 720 } });
 try {
   await page.goto(`${base}/?autotest=1&quality=low`, { waitUntil: 'load' });
-  await page.keyboard.press('Enter');
+  await page.waitForSelector('#menu .tm-item[data-act=newgame]', { timeout: 60000 });
+  step('title menu shown');
+  await page.click('#menu .tm-item[data-act=newgame]');
   await page.waitForSelector('#login button[type=submit]', { timeout: 120000 });
-  step('login screen shown');
+  step('New Game → login screen shown');
   const user = 'smoke' + Date.now().toString(36);
   await page.click('#login .tabs button[data-m=register]');
   await page.fill('#login [name=username]', user);

@@ -9,7 +9,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import type { QualityPreset } from '../settings';
 
 const GodRaysShader = {
-  uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.7) }, uIntensity: { value: 0 }, uColor: { value: new THREE.Color(1, 0.9, 0.75) } },
+  uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.7) }, uIntensity: { value: 0 }, uColor: { value: new THREE.Color(1, 0.82, 0.58) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform vec2 uSun; uniform float uIntensity; uniform vec3 uColor; varying vec2 vUv;
@@ -33,8 +33,9 @@ const GradeShader = {
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       // gentle filmic grade: lift shadows toward teal, warm highlights
       float l = dot(c, vec3(0.299,0.587,0.114));
-      c = mix(c, c*vec3(0.92,1.0,1.06), (1.0-l)*0.25);
-      c = mix(c, c*vec3(1.05,1.0,0.94), l*0.2);
+      // phase 3 golden grade (matches the title menu): lilac shadows, honey highlights
+      c = mix(c, c*vec3(0.95,0.95,1.05), (1.0-l)*0.28);
+      c = mix(c, c*vec3(1.10,1.0,0.84), 0.18 + l*0.3);
       c = mix(vec3(l), c, 1.08 - uLowHp*0.7);
       vec2 q = vUv - 0.5; float v = smoothstep(0.85, 0.2, length(q*vec2(1.0,1.15)));
       c *= mix(1.0 - uVig, 1.0, v);

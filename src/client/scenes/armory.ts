@@ -60,7 +60,7 @@ export class Armory {
 
     // floor: Poly Haven cobblestone (CC0), dark and wet, joints glow
     const rep = 2.2;
-    const col = tex('tex/cobble_col.jpg'), nor = tex('tex/cobble_nor.jpg', { srgb: false }), arm = tex('tex/cobble_arm.jpg', { srgb: false });
+    const col = tex('tex/cobble_col.webp'), nor = tex('tex/cobble_nor.webp', { srgb: false }), arm = tex('tex/cobble_arm.webp', { srgb: false });
     for (const t of [col, nor, arm]) t.repeat.set(rep * 6, rep * 6);
     const floorMat = new THREE.MeshStandardMaterial({ map: col, normalMap: nor, normalScale: new THREE.Vector2(1.6, 1.6), aoMap: arm, roughnessMap: arm, color: 0x8a8c94, roughness: 0.5, metalness: 0.05 });
     const U = this.glowU;

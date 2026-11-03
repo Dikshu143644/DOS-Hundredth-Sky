@@ -18,7 +18,7 @@ const patterns = [
 const extra = (process.env.SECRET_SCAN_LITERALS || '').split(',').filter((s) => s.length >= 12);
 let bad = 0;
 for (const f of files) {
-  if (!fs.existsSync(f) || fs.statSync(f).size > 5e6 || /\.(png|jpe?g|glb|woff2|mp4|webp|ico)$/i.test(f)) continue;
+  if (!fs.existsSync(f) || !fs.statSync(f).isFile() || fs.statSync(f).size > 5e6 || /\.(png|jpe?g|glb|woff2|mp4|webp|ico)$/i.test(f)) continue;
   const text = fs.readFileSync(f, 'utf8');
   for (const [re, name] of patterns) if (re.test(text)) { console.error(`✗ ${f}: looks like a ${name}`); bad++; }
   for (const lit of extra) if (text.includes(lit)) { console.error(`✗ ${f}: contains a known secret value`); bad++; }

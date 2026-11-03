@@ -12,7 +12,9 @@ import { GameClient } from './game/client';
 import { CharacterView } from './game/character';
 import { SkyCastle } from './scenes/skycastle';
 import type { Armory } from './scenes/armory';
-import { show, hide, LOGO_SVG, loginScreen, charSelectScreen, createScreen, loadingScreen, ui } from './ui/screens';
+import { show, hide, loginScreen, charSelectScreen, createScreen, loadingScreen, ui } from './ui/screens';
+import { titleMenu, confirmBox, TitleMenu, MenuAction } from './ui/menu';
+import { openSettings } from './ui/settings';
 import { TOWER, heightAt, SPAWN } from '../shared/world';
 import type { S2C, CharacterSummary, Appearance } from '../shared/protocol';
 import type { ClassId } from '../shared/combat';
@@ -45,22 +47,39 @@ const handlers: ((m: S2C) => void)[] = [];
 const state = { user: '', chars: [] as CharacterSummary[] };
 window.__dos = { engine, get game() { return game; }, state, settings, get mode() { return mode; }, get net() { return net; }, get welcome() { return welcome; }, get sky() { return sky; }, get armory() { return armory; }, openArmory: (id?: string) => openArmory(id) };
 
-// ------------------------------------------------------------------ build world in the background
-// the login sky-castle is built first (small, fast); the world streams in behind it
+// ------------------------------------------------------------------ title scene first, world streamed behind it (phase 3)
+// The title menu (golden-hour sky-castle) is the only thing built before the first frame; the
+// world (terrain, city, forest, monsters) starts streaming once the menu is on screen.
 const skyQ = (): 'low' | 'medium' | 'high' | 'ultra' => (settings.quality as any) ?? 'high';
+const NO_SKY = params.get('bench') === '1' || params.get('cine') === '1';
 const skyPromise = (async () => {
-  if (params.get('bench') === '1' || params.get('cine') === '1') return null;
+  if (NO_SKY) return null;
   try { const s = new SkyCastle(engine.renderer, skyQ()); await s.build(); s.setSize(innerWidth, innerHeight); return s; }
-  catch (e) { console.warn('[dos] sky-castle failed, using the world backdrop', e); return null; }
+  catch (e) { console.warn('[dos] title scene failed, using the poster', e); return null; }
 })();
 addEventListener('resize', () => { sky?.setSize(innerWidth, innerHeight); armory?.setSize(innerWidth, innerHeight); });
-const buildPromise = (async () => {
-  await skyPromise;
-  await preloadAnimations();
-  await engine.build((s) => { (document.querySelector('#gate .small') as HTMLElement | null)?.replaceChildren(document.createTextNode(s.toUpperCase() + '…')); });
-  engine.scene.add(dolly);
-  engine.onThunder = (d, s) => audio.thunder(d, s);
-})();
+let worldLabel = 'Preparing the world';
+let buildPromise: Promise<void> | null = null;
+function startWorld(): Promise<void> {
+  if (!buildPromise) buildPromise = (async () => {
+    const t0 = performance.now();
+    await preloadAnimations();
+    await engine.build((s) => { worldLabel = s; });
+    engine.scene.add(dolly);
+    engine.onThunder = (d, s) => audio.thunder(d, s);
+    (window as any).__worldMs = Math.round(performance.now() - t0);
+    console.info('[dos] world streamed in', (window as any).__worldMs, 'ms');
+  })();
+  return buildPromise;
+}
+/** 0..1 world streaming progress: asset downloads (80 %) + build steps (20 %). */
+function worldProgress() {
+  if (engine.ready) return 1;
+  const steps = ['Shaping the sky', 'Raising the land', 'Building the Capital walls', 'Growing the Ancient Forest', 'Compiling shaders'];
+  const si = Math.max(0, steps.indexOf(worldLabel));
+  const dl = loadProgress.total ? loadProgress.loaded / loadProgress.total : 0;
+  return Math.min(0.99, dl * 0.8 + (si / steps.length) * 0.2);
+}
 
 // ------------------------------------------------------------------ cinematic camera path (spline over forest → gate → Tower)
 const path = new THREE.CatmullRomCurve3([
@@ -135,7 +154,6 @@ const loop = () => {
   last = now;
   if (mode === 'sky' && sky) {
     sky.render(dt);
-    for (const [t, sub] of SUBS) if (sky.time >= t && sky.time < t + dt + 0.0001 && !document.getElementById('login')) setSub(sub);
     return;
   }
   if (mode === 'armory' && armory) { armory.render(dt); return; }
@@ -184,50 +202,7 @@ function setSub(text: string) {
   setTimeout(() => { s!.textContent = text; s!.style.opacity = '1'; }, 400);
 }
 
-// ------------------------------------------------------------------ flow
-function gate() {
-  const d = show(`<div class="logo">${LOGO_SVG.replace(/class="draw"/g, '').replace('class="fill"', '')}</div><div class="press">Press any key to begin</div><div class="small">Preparing the world…</div>`, 'gate');
-  const go = () => { window.removeEventListener('keydown', go); d.removeEventListener('pointerdown', go); void logo(); };
-  window.addEventListener('keydown', go);
-  d.addEventListener('pointerdown', go);
-}
-
-async function logo() {
-  audio.start();
-  hide('gate', false);
-  show(`<div class="logo">${LOGO_SVG}<div class="tag">The Hundredth Sky</div><div class="studio">a DOS Studio world</div></div>`, 'logo');
-  void connect();
-  const sc = await Promise.all([skyPromise, new Promise((r) => setTimeout(r, AUTOTEST ? 300 : 4200))]).then(([s]) => s);
-  if (sc && !AUTOTEST && params.get('bench') !== '1') {
-    hide('logo');
-    sky = sc; mode = 'sky';
-    if (params.get('skipintro') === '1') sky.intro = 1;
-    // the cinematic flight now ends at the floating Hundredth Tower; the login fades in over it
-    setTimeout(() => void connected.then(showLogin), params.get('skipintro') === '1' ? 0 : 3800);
-    const skip = () => { if (sky) sky.intro = Math.max(sky.intro, 0.92); };
-    window.addEventListener('keydown', skip, { once: true });
-    return;
-  }
-  await buildPromise;
-  hide('logo');
-  if (params.get('bench') === '1') { engine.env.cinematicSun = sunTowardTower(); bench = { t: 0, frames: [], done: false }; return; }
-  if (AUTOTEST || params.get('skipintro') === '1') return endCinematic();
-  mode = 'cine'; cineT = Number(params.get('cineAt') || 0);
-  engine.env.cinematicSun = sunTowardTower();
-  const c = show(`<div class="bars"></div><div class="title"><div class="t1">DOS presents</div><div class="t2">THE HUNDREDTH SKY</div><div class="t3">Every floor is a story. Every story is waiting.</div></div><div class="skip">Press any key to skip ›</div>`, 'cine');
-  const skip = () => endCinematic();
-  setTimeout(() => { window.addEventListener('keydown', skip, { once: true }); c.querySelector('.skip')!.addEventListener('click', skip); }, 600);
-}
-
-let cineEnded = false;
-function endCinematic() {
-  if (cineEnded) return; cineEnded = true;
-  hide('cine'); document.querySelector('.subtitle')?.remove();
-  engine.env.cinematicSun = sunTowardTower();
-  mode = 'menu'; menuT = 0;
-  void connected.then(showLogin);
-}
-
+// ------------------------------------------------------------------ network
 let connectedResolve: () => void;
 const connected = new Promise<void>((r) => (connectedResolve = r));
 async function connect() {
@@ -252,42 +227,116 @@ function once<T extends S2C['type']>(types: T[], fn: (m: Extract<S2C, { type: T 
   const h = (m: S2C) => { if ((types as string[]).includes(m.type)) { if (fn(m as any) !== false) handlers.splice(handlers.indexOf(h), 1); } };
   handlers.push(h);
 }
+let cineEnded = false;
+function endCinematic() { if (cineEnded) return; cineEnded = true; hide('cine'); document.querySelector('.subtitle')?.remove(); engine.env.cinematicSun = sunTowardTower(); mode = 'menu'; menuT = 0; }
 
-function showLogin() {
-  const token = localStorage.getItem('dos.token.' + (net!.mode));
-  if (token) {
-    once(['auth'], (m) => { if (m.ok) afterAuth(m.user!); else { localStorage.removeItem('dos.token.' + net!.mode); showLoginForm(); } });
-    net!.send({ type: 'resume', token });
-    return;
-  }
-  showLoginForm();
+// ------------------------------------------------------------------ flow: TITLE MENU → (log in) → continue / new game → world
+let menu: TitleMenu | null = null;
+const lastHero = (): { name: string; hp: number; hpMax: number; mp: number; mpMax: number } | null => { try { return JSON.parse(localStorage.getItem('dos.lastHero') || 'null'); } catch { return null; } };
+const hasToken = () => Object.keys(localStorage).some((k) => k.startsWith('dos.token.'));
+
+function boot() {
+  document.body.classList.add('poster');
+  engine.resize();
+  menu = titleMenu({ signedIn: hasToken(), hero: lastHero(), onAction: (a) => void onMenu(a) });
+  (window as any).__menuShownAt = performance.now();
+  void connect();
+  // first gesture anywhere starts the score (browsers block audio before one)
+  const go = () => { audio.start(); removeEventListener('pointerdown', go); removeEventListener('keydown', go); };
+  addEventListener('pointerdown', go); addEventListener('keydown', go);
+  if (NO_SKY) { void startWorld().then(() => { if (params.get('bench') === '1') { engine.env.cinematicSun = sunTowardTower(); bench = { t: 0, frames: [], done: false }; menu?.hide(); } }); return; }
+  void skyPromise.then((sc) => {
+    if (sc) { sky = sc; mode = 'sky'; if (params.get('skipintro') === '1' || AUTOTEST) sky.intro = 1; }
+    (window as any).__titleLiveAt = performance.now();
+    requestAnimationFrame(() => document.body.classList.remove('poster'));
+    // stream the world once the title scene is live (a beat later on slow devices)
+    if (params.get('nostream') !== '1') setTimeout(() => void startWorld(), AUTOTEST ? 0 : 900);
+  });
+  const iv = setInterval(() => { if (!menu?.el.isConnected) return clearInterval(iv); const p = buildPromise ? worldProgress() : 0; menu.stream(p, worldLabel); if (p >= 1) clearInterval(iv); }, 250);
 }
-function showLoginForm() {
-  const L = loginScreen({
-    mode: welcome!.mode, server: welcome!.server, llm: welcome!.llm,
-    onOffline: net!.mode === 'online' ? () => { net!.close(); bindNet(startOffline()); hide('login', false); void connected.then(showLoginForm); } : undefined,
-    onSubmit: (m, u, p) => {
-      once(['auth'], (r) => { if (r.ok) { localStorage.setItem('dos.token.' + net!.mode, r.token!); hide('login'); afterAuth(r.user!); } else L.error(r.error ?? 'Failed'); });
-      net!.send({ type: m, user: u, pass: p });
-    },
+
+let busy = false;
+async function onMenu(a: MenuAction) {
+  if (busy) return;
+  busy = true; menu?.busy(true);
+  try {
+    if (a === 'settings') { menu?.hide(); await new Promise<void>((r) => openSettings(engine, r)); menu?.show(); return; }
+    if (a === 'quit') {
+      if (state.user || hasToken()) {
+        if (await confirmBox('LOG OUT', 'Leave the Hundredth Sky and sign out of this device?', 'LOG OUT')) {
+          for (const k of Object.keys(localStorage)) if (k.startsWith('dos.token.') || k === 'dos.lastChar' || k === 'dos.lastHero') localStorage.removeItem(k);
+          menu?.toast('Signed out. See you in the sky.');
+          setTimeout(() => location.reload(), 900);
+        }
+      } else menu?.toast('Close this tab to quit. The sky will wait for you.');
+      return;
+    }
+    const ok = await ensureAuth();
+    if (!ok) return;
+    const chars = await fetchChars();
+    if (a === 'continue' && chars.length) {
+      const last = localStorage.getItem('dos.lastChar');
+      const c = chars.find((x) => x.id === last) ?? chars[0];
+      enterWorld(c);
+      return;
+    }
+    if (a === 'continue' && !chars.length) menu?.toast('No hero yet. Let us create one.');
+    if (!(await leaveSky())) return;
+    if (a === 'newgame' && chars.length >= 4) { showChars(); return; }
+    showCreate();
+  } finally { busy = false; menu?.busy(false); }
+}
+
+/** Resolves true once a user is signed in (saved session, or the glass login over the menu). */
+async function ensureAuth(): Promise<boolean> {
+  await connected;
+  if (state.user) return true;
+  const token = localStorage.getItem('dos.token.' + net!.mode);
+  if (token) {
+    const ok = await new Promise<boolean>((res) => { once(['auth'], (m) => { if (m.ok) { state.user = m.user!; res(true); } else { localStorage.removeItem('dos.token.' + net!.mode); res(false); } }); net!.send({ type: 'resume', token }); });
+    if (ok) return true;
+  }
+  return showLoginForm();
+}
+function showLoginForm(): Promise<boolean> {
+  return new Promise((resolve) => {
+    menu?.hide();
+    const L = loginScreen({
+      mode: welcome!.mode, server: welcome!.server, llm: welcome!.llm,
+      onOffline: net!.mode === 'online' ? () => { net!.close(); bindNet(startOffline()); hide('login', false); void connected.then(() => showLoginForm().then(resolve)); } : undefined,
+      onSubmit: (m, u, p) => {
+        once(['auth'], (r) => { if (r.ok) { localStorage.setItem('dos.token.' + net!.mode, r.token!); state.user = r.user!; hide('login'); resolve(true); } else L.error(r.error ?? 'Failed'); });
+        net!.send({ type: m, user: u, pass: p });
+      },
+    });
+    L.el.classList.add('over-menu');
+    const x = document.createElement('button'); x.className = 'sk-close'; x.type = 'button'; x.setAttribute('aria-label', 'Back'); x.textContent = '✕';
+    x.onclick = () => { hide('login', false); menu?.show(); resolve(false); };
+    L.el.querySelector('.sk-glass')?.appendChild(x);
   });
 }
-async function leaveSky() {
-  if (!sky) return;
+function fetchChars(): Promise<CharacterSummary[]> {
+  return new Promise((res) => { once(['chars'], (m) => { state.chars = m.list; res(m.list); }); net!.send({ type: 'chars' }); });
+}
+/** Leaves the title scene for the world stage (character create/select). Waits for the streamed
+ *  world with a real progress bar if it is not ready yet. */
+async function leaveSky(): Promise<boolean> {
+  menu?.hide();
   if (!engine.ready) {
-    const w = show('<div class="sk-wait">Preparing the world…</div>', 'skywait');
-    await buildPromise; w.remove();
+    const L = loadingScreen();
+    void startWorld();
+    const iv = setInterval(() => L.set(worldProgress(), worldLabel), 100);
+    await startWorld(); clearInterval(iv); L.set(1, 'Ready'); L.done();
   }
   document.querySelector('.subtitle')?.remove();
-  const s = sky; sky = null; mode = 'menu'; menuT = 0;
+  mode = 'menu'; menuT = 0;
   engine.env.cinematicSun = sunTowardTower();
-  s.dispose();
+  return true;
 }
-async function afterAuth(user: string) {
-  await leaveSky();
-  state.user = user;
-  once(['chars'], (m) => { state.chars = m.list; if (m.list.length) showChars(); else showCreate(); });
-  net!.send({ type: 'chars' });
+function backToTitle() {
+  hide('chars', false); hide('create', false);
+  preview?.dispose(); preview = null;
+  if (sky) { mode = 'sky'; menu?.show(); } else location.reload();
 }
 function showChars() {
   charSelectScreen(state.chars, {
@@ -295,7 +344,7 @@ function showChars() {
     onPlay: (c) => enterWorld(c),
     onCreate: () => { hide('chars', false); showCreate(); },
     onDelete: (c) => { once(['chars'], (m) => { state.chars = m.list; hide('chars', false); if (m.list.length) showChars(); else showCreate(); }); net!.send({ type: 'deleteChar', id: c.id }); },
-    onBack: () => { localStorage.removeItem('dos.token.' + net!.mode); location.reload(); },
+    onBack: () => backToTitle(),
   });
 }
 function showCreate() {
@@ -310,33 +359,46 @@ function showCreate() {
       });
       net!.send({ type: 'createChar', name, cls, appearance: ap });
     },
-    onBack: () => { hide('create', false); if (state.chars.length) showChars(); else { localStorage.removeItem('dos.token.' + net!.mode); location.reload(); } },
+    onBack: () => { hide('create', false); if (state.chars.length) showChars(); else backToTitle(); },
   });
 }
 
 function enterWorld(c: CharacterSummary) {
-  hide('chars', false); hide('create', false);
+  hide('chars', false); hide('create', false); menu?.hide();
+  localStorage.setItem('dos.lastChar', c.id);
   const L = loadingScreen();
   const t0 = performance.now();
+  void startWorld();
   let joined: Extract<S2C, { type: 'joined' }> | null = null;
   once(['joined', 'charError'], (m) => { if (m.type === 'joined') joined = m; });
   net!.send({ type: 'join', charId: c.id });
   const iv = setInterval(() => {
-    const p = Math.min(1, ((performance.now() - t0) / (AUTOTEST ? 300 : 2600)) * 0.7 + (loadProgress.total ? (loadProgress.loaded / loadProgress.total) * 0.3 : 0.3));
-    L.set(joined ? p : Math.min(p, 0.9), joined ? 'Entering the world' : 'Contacting the world server');
-    if (joined && p >= 1) {
+    // real progress: the streamed world (85 %) + the server handshake (15 %)
+    const w = worldProgress();
+    const p = Math.min(1, w * 0.85 + (joined ? 0.15 : Math.min(0.1, (performance.now() - t0) / 20000)));
+    L.set(p, !engine.ready ? `${worldLabel}` : joined ? 'Entering the world' : 'Contacting the world server');
+    if (joined && engine.ready) {
       clearInterval(iv);
+      const j = joined as Extract<S2C, { type: 'joined' }>;
+      saveHero(c.name, j.self);
       preview?.dispose(); preview = null;
+      if (sky) { sky.dispose(); sky = null; }
+      menu?.remove(); menu = null;
       engine.env.cinematicSun = null;
-      game = new GameClient(engine, net!, joined);
-      // keep the network handler chain alive for later screens
+      game = new GameClient(engine, net!, j);
+      // keep the network handler chain alive for later screens; remember hp/mp for the title bars
       const gameHandler = net!.onMessage;
-      net!.onMessage = (m) => { gameHandler(m); for (const h of [...handlers]) h(m); };
+      let lastSave = 0;
+      net!.onMessage = (m) => { gameHandler(m); for (const h of [...handlers]) h(m); if (m.type === 'snap' && performance.now() - lastSave > 5000) { lastSave = performance.now(); saveHero(c.name, m.self); } };
       mode = 'game';
       L.done();
+      (window as any).__enteredAt = performance.now();
       if (navigator.xr) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { if (ok) { const b = VRButton.createButton(engine.renderer); b.style.bottom = '90px'; document.body.appendChild(b); } }).catch(() => {});
     }
   }, 50);
+}
+function saveHero(name: string, s: { hp: number; mhp: number; mp: number; mmp: number }) {
+  try { localStorage.setItem('dos.lastHero', JSON.stringify({ name, hp: Math.round(s.hp), hpMax: Math.round(s.mhp), mp: Math.round(s.mp), mpMax: Math.round(s.mmp) })); } catch { /* private mode */ }
 }
 
 async function openArmory(focus?: string) {
@@ -358,5 +420,5 @@ async function openArmory(focus?: string) {
   });
 }
 
-gate();
+boot();
 void SPAWN; void settings;

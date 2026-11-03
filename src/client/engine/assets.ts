@@ -24,6 +24,7 @@ export function loadGLTF(path: string): Promise<GLTF> {
   return p;
 }
 export function tex(path: string, opts: { srgb?: boolean; repeat?: number; anisotropy?: number } = {}): THREE.Texture {
+  path = path.replace(/^(tex\/.*)\.(jpg|png)$/, '$1.webp'); // phase 3: all surface textures ship as WebP
   const k = path + JSON.stringify(opts);
   let t = texCache.get(k);
   if (!t) {
@@ -53,8 +54,9 @@ export const SKEL_CLIPS: Partial<Record<AnimName, string>> = {
 let heroClips: THREE.AnimationClip[] = [];
 let skelClips: THREE.AnimationClip[] = [];
 export async function preloadAnimations() {
-  const [h, s] = await Promise.all([loadGLTF('models/chars/anims_hero.glb'), loadGLTF('models/chars/anims_skel.glb')]);
-  heroClips = h.animations; skelClips = s.animations;
+  // phase 3: only the skeleton monsters still use the KayKit clip set (heroes use UAL clips)
+  const s = await loadGLTF('models/chars/anims_skel.glb');
+  skelClips = s.animations;
 }
 
 export interface CharacterRig { root: THREE.Object3D; mixer: THREE.AnimationMixer; actions: Map<string, THREE.AnimationAction>; clipsMap: Partial<Record<AnimName, string>>; materials: THREE.MeshStandardMaterial[] }
